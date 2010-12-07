@@ -1,0 +1,739 @@
+=head1 NAME
+
+staticperl - perl, libc, 100 modules, all in one 500kb file
+
+=head1 SYNOPSIS
+
+   staticperl help      # print the embedded documentation
+   staticperl fetch     # fetch and unpack perl sources
+   staticperl configure # fetch and then configure perl
+   staticperl build     # configure and then build perl
+   staticperl install   # build and then install perl
+   staticperl clean     # clean most intermediate files (restart at configure)
+   staticperl distclean # delete everything installed by this script
+   staticperl cpan      # invoke CPAN shell
+   staticperl instmod path...        # install unpacked modules
+   staticperl instcpan modulename... # install modules from CPAN
+   staticperl mkbundle <bundle-args...> # see documentation
+   staticperl mkperl <bundle-args...>   # see documentation
+
+Typical Examples:
+
+   staticperl install   # fetch, configure, build and install perl
+   staticperl cpan      # run interactive cpan shell
+   staticperl mkperl -M '"Config_heavy.pl"' # build a perl that supports -V
+   staticperl mkperl -MAnyEvent::Impl::Perl -MAnyEvent::HTTPD -MURI -MURI::http
+                        # build a perl with the above modules linked in
+
+=head1 DESCRIPTION
+
+This script helps you creating single-file perl interpreters, or embedding
+a perl interpreter in your applications. Single-file means that it is
+fully self-contained - no separate shared objects, no autoload fragments,
+no .pm or .pl files are needed. And when linking statically, you can
+create (or embed) a single file that contains perl interpreter, libc, all
+the modules you need and all the libraries you need.
+
+With F<uClibc> and F<upx> on x86, you can create a single 500kb binary
+that contains perl and 100 modules such as POSIX, AnyEvent, EV, IO::AIO,
+Coro and so on. Or any other choice of modules.
+
+The created files do not need write access to the file system (like PAR
+does). In fact, since this script is in many ways similar to PAR::Packer,
+here are the differences:
+
+=over 4
+
+=item * The generated executables are much smaller than PAR created ones.
+
+Shared objects and the perl binary contain a lot of extra info, while
+the static nature of F<staticperl> allows the linker to remove all
+functionality and meta-info not required by the final executable. Even
+extensions statically compiled into perl at build time will only be
+present in the final executable when needed.
+
+In addition, F<staticperl> can strip perl sources much more effectively
+than PAR.
+
+=item * The generated executables start much faster.
+
+There is no need to unpack files, or even to parse Zip archives (which is
+slow and memory-consuming business).
+
+=item * The generated executables don't need a writable filesystem.
+
+F<staticperl> loads all required files directly from memory. There is no
+need to unpack files into a temporary directory.
+
+=item * More control over included files.
+
+PAR tries to be maintenance and hassle-free - it tries to include more
+files than necessary to make sure everything works out of the box. The
+extra files (such as the unicode database) can take substantial amounts of
+memory and file size.
+
+With F<staticperl>, the burden is mostly with the developer - only direct
+compile-time dependencies and L<AutoLoader> are handled automatically.
+This means the modules to include often need to be tweaked manually.
+
+=item * PAR works out of the box, F<staticperl> does not.
+
+Maintaining your own custom perl build can be a pain in the ass, and while
+F<staticperl> tries to make this easy, it still requires a custom perl
+build and possibly fiddling with some modules. PAR is likely to produce
+results faster.
+
+=back
+
+=head1 HOW DOES IT WORK?
+
+Simple: F<staticperl> downloads, compile and installs a perl version of
+your choice in F<~/.staticperl>. You can add extra modules either by
+letting F<staticperl> install them for you automatically, or by using CPAN
+and doing it interactively. This usually takes 5-10 minutes, depending on
+the speed of your computer and your internet connection.
+
+It is possible to do program development at this stage, too.
+
+Afterwards, you create a list of files and modules you want to include,
+and then either build a new perl binary (that acts just like a normal perl
+except everything is compiled in), or you create bundle files (basically C
+sources you can use to embed all files into your project).
+
+This step is very fast (a few seconds if PPI is not used for stripping,
+more seconds otherwise, as PPI is very slow), and can be tweaked and
+repeated as often as necessary.
+
+=head1 THE F<STATICPERL> SCRIPT
+
+This module installs a script called F<staticperl> into your perl
+binary directory. The script is fully self-contained, and can be used
+without perl (for example, in an uClibc chroot environment). In fact,
+it can be extracted from the C<App::Staticperl> distribution tarball as
+F<bin/staticperl>, without any installation.
+
+F<staticperl> interprets the first argument as a command to execute,
+optionally followed by any parameters.
+
+There are two command categories: the "phase 1" commands which deal with
+installing perl and perl modules, and the "phase 2" commands, which deal
+with creating binaries and bundle files.
+
+=head2 PHASE 1 COMMANDS: INSTALLING PERL
+
+The most important command is F<install>, which does basically
+everything. The default is to download and install perl 5.12.2 and a few
+modules required by F<staticperl> itself, but all this can (and should) be
+changed - see L<CONFIGURATION>, below.
+
+The command
+
+   staticperl install
+
+Is normally all you need: It installs the perl interpreter in
+F<~/.staticperl/perl>. It downloads, configures, builds and installs the
+perl interpreter if required.
+
+Most of the following commands simply run one or more steps of this
+sequence.
+
+To force recompilation or reinstallation, you need to run F<staticperl
+distclean> first.
+
+=over 4
+
+=item F<staticperl fetch>
+
+Runs only the download and unpack phase, unless this has already happened.
+
+=item F<staticperl configure>
+
+Configures the unpacked perl sources, potentially after downloading them first.
+
+=item F<staticperl build>
+
+Builds the configured perl sources, potentially after automatically
+configuring them.
+
+=item F<staticperl install>
+
+Wipes the perl installation directory (usually F<~/.staticperl/perl>) and
+installs the perl distribution, potentially after building it first.
+
+=item F<staticperl cpan> [args...]
+
+Starts an interactive CPAN shell that you can use to install further
+modules. Installs the perl first if necessary, but apart from that,
+no magic is involved: you could just as well run it manually via
+F<~/.staticperl/perl/bin/cpan>.
+
+Any additional arguments are simply passed to the F<cpan> command.
+
+=item F<staticperl instcpan> module...
+
+Tries to install all the modules given and their dependencies, using CPAN.
+
+Example:
+
+   staticperl instcpan EV AnyEvent::HTTPD Coro
+
+=item F<staticperl instsrc> directory...
+
+In the unlikely case that you have unpacked perl modules around and want
+to install from these instead of from CPAN, you can do this using this
+command by specifying all the directories with modules in them that you
+want to have built.
+
+=item F<staticperl clean>
+
+Runs F<make distclean> in the perl source directory (and potentially
+cleans up other intermediate files). This can be used to clean up
+intermediate files without removing the installed perl interpreter.
+
+=item F<staticperl distclean>
+
+This wipes your complete F<~/.staticperl> directory. Be careful with this,
+it nukes your perl download, perl sources, perl distribution and any
+installed modules. It is useful if you wish to start over "from scratch"
+or when you want to uninstall F<staticperl>.
+
+=back
+
+=head2 PHASE 2 COMMANDS: BUILDING PERL BUNDLES
+
+Building (linking) a new F<perl> binary is handled by a separate
+script. To make it easy to use F<staticperl> from a F<chroot>, the script
+is embedded into F<staticperl>, which will write it out and call for you
+with any arguments you pass:
+
+   staticperl mkbundle mkbundle-args...
+
+In the oh so unlikely case of something not working here, you
+can run the script manually as well (by default it is written to
+F<~/.staticperl/mkbundle>).
+
+F<mkbundle> is a more conventional command and expect the argument
+syntax commonly used on UNIX clones. For example, this command builds
+a new F<perl> binary and includes F<Config.pm> (for F<perl -V>),
+F<AnyEvent::HTTPD>, F<URI> and a custom F<httpd> script (from F<eg/httpd>
+in this distribution):
+
+   # first make sure we have perl and the required modules
+   staticperl instcpan AnyEvent::HTTPD
+
+   # now build the perl
+   staticperl mkperl -M'"Config_heavy.pl"' -MAnyEvent::Impl::Perl \
+                     -MAnyEvent::HTTPD -MURI::http \
+                     --add 'eg/httpd httpd.pm'
+
+   # finally, invoke it
+   ./perl -Mhttpd
+
+As you can see, things are not quite as trivial: the L<Config> module has
+a hidden dependency which is not even a perl module (F<Config_heavy.pl>),
+L<AnyEvent> needs at least one event loop backend that we have to
+specify manually (here L<AnyEvent::Impl::Perl>), and the F<URI> module
+(required by L<AnyEvent::HTTPD>) implements various URI schemes as extra
+modules - since L<AnyEvent::HTTPD> only needs C<http> URIs, we only need
+to include that module. I found out about these dependencies by carefully
+watching any error messages about missing modules...
+
+=head3 OPTION PROCESSING
+
+All options can be given as arguments on the command line (typically
+using long (e.g. C<--verbose>) or short option (e.g. C<-v>) style). Since
+specifying a lot of modules can make the command line very cumbersome,
+you can put all long options into a "bundle specification file" (with or
+without C<--> prefix) and specify this bundle file instead.
+
+For example, the command given earlier could also look like this:
+
+   staticperl mkperl httpd.bundle
+
+And all options could be in F<httpd.bundle>:
+   
+   use "Config_heavy.pl"
+   use AnyEvent::Impl::Perl
+   use AnyEvent::HTTPD
+   use URI::http
+   add eg/httpd httpd.pm
+
+All options that specify modules or files to be added are processed in the
+order given on the command line (that affects the C<--use> and C<--eval>
+options at the moment).
+
+=head3 MKBUNDLE OPTIONS
+
+=over 4
+
+=item --verbose | -v
+
+Increases the verbosity level by one (the default is C<1>).
+
+=item --quiet | -q
+
+Decreases the verbosity level by one.
+
+=item --strip none|pod|ppi
+
+Specify the stripping method applied to reduce the file of the perl
+sources included.
+
+The default is C<pod>, which uses the L<Pod::Strip> module to remove all
+pod documentation, which is very fast and reduces file size a lot.
+
+The C<ppi> method uses L<PPI> to parse and condense the perl sources. This
+saves a lot more than just L<Pod::Strip>, and is generally safer, but
+is also a lot slower, so is best used for production builds. Note that
+this method doesn't optimise for raw file size, but for best compression
+(that means that the uncompressed file size is a bit larger, but the files
+compress better, e.g. with F<upx>).
+
+Last not least, if you need accurate line numbers in error messages,
+or in the unlikely case where C<pod> is too slow, or some module gets
+mistreated, you can specify C<none> to not mangle included perl sources in
+any way.
+
+=item --perl
+
+After writing out the bundle files, try to link a new perl interpreter. It
+will be called F<perl> and will be left in the current working
+directory. The bundle files will be removed.
+
+This switch is automatically used when F<staticperl> is invoked with the
+C<mkperl> command (instead of C<mkbundle>):
+
+   # build a new ./perl with only common::sense in it - very small :)
+   staticperl mkperl -Mcommon::sense
+
+=item --use module | -Mmodule
+
+Include the named module and all direct dependencies. This is done by
+C<require>'ing the module in a subprocess and tracing which other modules
+and files it actually loads. If the module uses L<AutoLoader>, then all
+splitfiles will be included as well.
+
+Example: include AnyEvent and AnyEvent::Impl::Perl.
+
+   staticperl mkbundle --use AnyEvent --use AnyEvent::Impl::Perl
+
+Sometimes you want to load old-style "perl libraries" (F<.pl> files), or
+maybe other weirdly named files. To do that, you need to quote the name in
+single or double quotes. When given on the command line, you probably need
+to quote once more to avoid your shell interpreting it. Common cases that
+need this are F<Config_heavy.pl> and F<utf8_heavy.pl>.
+
+Example: include the required files for F<perl -V> to work in all its
+glory (F<Config.pm> is included automatically by this).
+
+   # bourne shell
+   staticperl mkbundle --use '"Config_heavy.pl"'
+
+   # bundle specification file
+   use "Config_heavy.pl"
+
+The C<-Mmodule> syntax is included as an alias that might be easier to
+remember than C<use>. Or maybe it confuses people. Time will tell. Or
+maybe not. Argh.
+
+=item --eval "perl code" | -e "perl code"
+
+Sometimes it is easier (or necessary) to specify dependencies using perl
+code, or maybe one of the modules you use need a special use statement. In
+that case, you can use C<eval> to execute some perl snippet or set some
+variables or whatever you need. All files C<require>'d or C<use>'d in the
+script are included in the final bundle.
+
+Keep in mind that F<mkbundle> will only C<require> the modules named
+by the C<--use> option, so do not expect the symbols from modules you
+C<--use>'d earlier on the command line to be available.
+
+Example: force L<AnyEvent> to detect a backend and therefore include it
+in the final bundle.
+
+   staticperl mkbundle --eval 'use AnyEvent; AnyEvent::detect'
+
+   # or like this
+   staticperl mkbundle -MAnyEvent --eval 'use AnyEvent; AnyEvent::detect'
+
+Example: use a separate "bootstrap" script that C<use>'s lots of modules
+and include this in the final bundle, to be executed automatically.
+
+   staticperl mkbundle --eval 'do "bootstrap"' --boot bootstrap
+
+=item --boot filename
+
+Include the given file in the bundle and arrange for it to be executed
+(using a C<require>) before anything else when the new perl is
+initialised. This can be used to modify C<@INC> or anything else before
+the perl interpreter executes scripts given on the command line (or via
+C<-e>). This works even in an embedded interpreter.
+
+=item --add "file" | --add "file alias"
+
+Adds the given (perl) file into the bundle (and optionally call it
+"alias"). This is useful to include any custom files into the bundle.
+
+Example: embed the file F<httpd> as F<httpd.pm> when creating the bundle.
+
+   staticperl mkperl --add "httpd httpd.pm"
+
+It is also a great way to add any custom modules:
+
+   # specification file
+   add file1 myfiles/file1
+   add file2 myfiles/file2
+   add file3 myfiles/file3
+
+=item --binadd "file" | --add "file alias"
+
+Just like C<--add>, except that it treats the file as binary and adds it
+without any processing.
+
+You should probably add a C</> prefix to avoid clashing with embedded
+perl files (whose paths do not start with C</>), and/or use a special
+directory, such as C</res/name>.
+
+You can later get a copy of these files by calling C<staticperl::find
+"alias">.
+
+=item --static
+
+When C<--perl> is also given, link statically instead of dynamically. The
+default is to link the new perl interpreter fully dynamic (that means all
+perl modules are linked statically, but all external libraries are still
+referenced dynamically).
+
+Keep in mind that Solaris doesn't support static linking at all, and
+systems based on GNU libc don't really support it in a usable fashion
+either. Try uClibc if you want to create fully statically linked
+executables, or try the C<--staticlibs> option to link only some libraries
+statically.
+
+=item any other argument
+
+Any other argument is interpreted as a bundle specification file, which
+supports most long options (without extra quoting), one option per line.
+
+=back
+
+=head2 F<STATCPERL> CONFIGURATION AND HOOKS
+
+During (each) startup, F<staticperl> tries to source the following shell
+files in order:
+
+   /etc/staticperlrc
+   ~/.staticperlrc
+   $STATICPERL/rc
+
+They can be used to override shell variables, or define functions to be
+called at specific phases.
+
+Note that the last file is erased during F<staticperl distclean>, so
+generally should not be used.
+
+=head3 CONFIGURATION VARIABLES
+
+=head4 Variables you I<should> override
+
+=over 4
+
+=item C<EMAIL>
+
+The e-mail address of the person who built this binary. Has no good
+default, so should be specified by you.
+
+=item C<CPAN>
+
+The URL of the CPAN mirror to use (e.g. L<http://mirror.netcologne.de/cpan/>).
+
+=item C<EXTRA_MODULES>
+
+Additional modules installed during F<staticperl install>. Here you can
+set which modules you want have to installed from CPAN.
+
+Example: I really really need EV, AnyEvent, Coro and AnyEvent::AIO.
+
+   EXTRA_MODULES="EV AnyEvent Coro AnyEvent::AIO"
+
+Note that you can also use a C<postinstall> hook to achieve this, and
+more.
+
+=back
+
+=head4 Variables you might I<want> to override
+
+=over 4
+
+=item C<STATICPERL>
+
+The directory where staticperl stores all its files
+(default: F<~/.staticperl>).
+
+=item C<PERL_MM_USE_DEFAULT>, C<EV_EXTRA_DEFS>, ...
+
+Usually set to C<1> to make modules "less inquisitive" during their
+installation, you can set any environment variable you want - some modules
+(such as L<Coro> or L<EV>) use environment variables for further tweaking.
+
+=item C<PERL_VERSION>
+
+The perl version to install - default is currently C<5.12.2>, but C<5.8.9>
+is also a good choice (5.8.9 is much smaller than 5.12.2, while 5.10.1 is
+about as big as 5.12.2).
+
+=item C<PERL_PREFIX>
+
+The prefix where perl gets installed (default: F<$STATICPERL/perl>),
+i.e. where the F<bin> and F<lib> subdirectories will end up.
+
+=item C<PERL_CONFIGURE>
+
+Additional Configure options - these are simply passed to the perl
+Configure script. For example, if you wanted to enable dynamic loading,
+you could pass C<-Dusedl>. To enable ithreads (Why would you want that
+insanity? Don't! Use L<forks> instead!) you would pass C<-Duseithreads>
+and so on.
+
+More commonly, you would either activate 64 bit integer support
+(C<-Duse64bitint>), or disable large files support (-Uuselargefiles), to
+reduce filesize further.
+
+=item C<PERL_CPPFLAGS>, C<PERL_OPTIMIZE>, C<PERL_LDFLAGS>, C<PERL_LIBS>
+
+These flags are passed to perl's F<Configure> script, and are generally
+optimised for small size (at the cost of performance). Since they also
+contain subtle workarounds around various build issues, changing these
+usually requires understanding their default values - best look at the top
+of the F<staticperl> script for more info on these.
+
+=back
+
+=head4 Variables you probably I<do not want> to override
+
+=over 4
+
+=item C<MKBUNDLE>
+
+Where F<staticperl> writes the C<mkbundle> command to
+(default: F<$STATICPERL/mkbundle>).
+
+=item C<STATICPERL_MODULES>
+
+Additional modules needed by C<mkbundle> - should therefore not be changed
+unless you know what you are doing.
+
+=back
+
+=head3 OVERRIDABLE HOOKS
+
+In addition to environment variables, it is possible to provide some
+shell functions that are called at specific times. To provide your own
+commands, just define the corresponding function.
+
+Example: install extra modules from CPAN and from some directories
+at F<staticperl install> time.
+
+   postinstall() {
+      rm -rf lib/threads* # weg mit Schaden
+      instcpan IO::AIO EV
+      instsrc ~/src/AnyEvent
+      instsrc ~/src/XML-Sablotron-1.0100001
+      instcpan Anyevent::AIO AnyEvent::HTTPD
+   }
+
+=over 4
+
+=item postconfigure
+
+Called after configuring, but before building perl. Current working
+directory is the perl source directory.
+
+Could be used to tailor/patch config.sh (followed by F<./Configure -S>) or
+do any other modifications.
+
+=item postbuild
+
+Called after building, but before installing perl. Current working
+directory is the perl source directory.
+
+I have no clue what this could be used for - tell me.
+
+=item postinstall
+
+Called after perl and any extra modules have been installed in C<$PREFIX>,
+but before setting the "installation O.K." flag.
+
+The current working directory is C<$PREFIX>, but maybe you should not rely
+on that.
+
+This hook is most useful to customise the installation, by deleting files,
+or installing extra modules using the C<instcpan> or C<instsrc> functions.
+
+The script must return with a zero exit status, or the installation will
+fail.
+
+=back
+
+=head1 ANATOMY OF A BUNDLE
+
+When not building a new perl binary, C<mkbundle> will leave a number of
+files in the current working directory, which can be used to embed a perl
+interpreter in your program.
+
+Intimate knowledge of L<perlembed> and preferably some experience with
+embedding perl is highly recommended.
+
+C<mkperl> (or the C<--perl> option) basically does this to link the new
+interpreter (it also adds a main program to F<bundle.>):
+
+   $Config{cc} $(cat bundle.ccopts) -o perl bundle.c $(cat bundle.ldopts)
+
+=over 4
+
+=item bundle.h
+
+A header file that contains the prototypes of the few symbols "exported"
+by bundle.c, and also exposes the perl headers to the application.
+
+=over 4
+
+=item staticperl_init ()
+
+Initialises the perl interpreter. You can use the normal perl functions
+after calling this function, for example, to define extra functions or
+to load a .pm file that contains some initialisation code, or the main
+program function:
+
+   XS (xsfunction)
+   {
+     dXSARGS;
+
+     // now we have items, ST(i) etc.
+   }
+
+   static void
+   run_myapp(void)
+   {
+      staticperl_init ();
+      newXSproto ("myapp::xsfunction", xsfunction, __FILE__, "$$;$");
+      eval_pv ("require myapp::main", 1); // executes "myapp/main.pm"
+   }
+
+=item staticperl_xs_init (pTHX)
+
+Sometimes you need direct control over C<perl_parse> and C<perl_run>, in
+which case you do not want to use C<staticperl_init> but call them on your
+own.
+
+Then you need this function - either pass it directly as the C<xs_init>
+function to C<perl_parse>, or call it from your own C<xs_init> function.
+
+=item staticperl_cleanup ()
+
+In the unlikely case that you want to destroy the perl interpreter, here
+is the corresponding function.
+
+=item PerlInterpreter *staticperl
+
+The perl interpreter pointer used by staticperl. Not normally so useful,
+but there it is.
+
+=back
+
+=item bundle.ccopts
+
+Contains the compiler options required to compile at least F<bundle.c> and
+any file that includes F<bundle.h> - you should probably use it in your
+C<CFLAGS>.
+
+=item bundle.ldopts
+
+The linker options needed to link the final program.
+
+=back
+
+=head1 RUNTIME FUNCTIONALITY
+
+Binaries created with C<mkbundle>/C<mkperl> contain extra functions, which
+are required to access the bundled perl sources, but might be useful for
+other purposes.
+
+In addition, for the embedded loading of perl files to work, F<staticperl>
+overrides the C<@INC> array.
+
+=over 4
+
+=item $file = staticperl::find $path
+
+Returns the data associated with the given C<$path>
+(e.g. C<Digest/MD5.pm>, C<auto/POSIX/autosplit.ix>), which is basically
+the UNIX path relative to the perl library directory.
+
+Returns C<undef> if the file isn't embedded.
+
+=item @paths = staticperl::list
+
+Returns the list of all paths embedded in this binary.
+
+=back
+
+=head1 FULLY STATIC BINARIES - BUILDROOT
+
+To make truly static (Linux-) libraries, you might want to have a look at
+buildroot (L<http://buildroot.uclibc.org/>).
+
+Buildroot is primarily meant to set up a cross-compile environment (which
+is not so useful as perl doesn't quite like cross compiles), but it can also compile
+a chroot environment where you can use F<staticperl>.
+
+To do so, download buildroot, and enable "Build options => development
+files in target filesystem" and optionally "Build options => gcc
+optimization level (optimize for size)". At the time of writing, I had
+good experiences with GCC 4.4.x but not GCC 4.5.
+
+To minimise code size, I used C<-pipe -ffunction-sections -fdata-sections
+-finline-limit=8 -fno-builtin-strlen -mtune=i386>. The C<-mtune=i386>
+doesn't decrease codesize much, but it makes the file much more
+compressible.
+
+If you don't need Coro or threads, you can go with "linuxthreads.old" (or
+no thread support). For Coro, it is highly recommended to switch to a
+uClibc newer than 0.9.31 (at the time of this writing, I used the 20101201
+snapshot) and enable NPTL, otherwise Coro needs to be configured with the
+ultra-slow pthreads backend to work around linuxthreads bugs (it also uses
+twice the address space needed for stacks).
+
+If you use C<linuxthreads.old>, then you should also be aware that
+uClibc shares C<errno> between all threads when statically linking. See
+L<http://lists.uclibc.org/pipermail/uclibc/2010-June/044157.html> for a
+workaround (And L<https://bugs.uclibc.org/2089> for discussion).
+
+C<ccache> support is also recommended, especially if you want
+to play around with buildroot options. Enabling the C<miniperl>
+package will probably enable all options required for a successful
+perl build. F<staticperl> itself additionally needs either C<wget>
+(recommended, for CPAN) or C<curl>.
+
+As for shells, busybox should provide all that is needed, but the default
+busybox configuration doesn't include F<comm> which is needed by perl -
+either make a custom busybox config, or compile coreutils.
+
+For the latter route, you might find that bash has some bugs that keep
+it from working properly in a chroot - either use dash (and link it to
+F</bin/sh> inside the chroot) or link busybox to F</bin/sh>, using it's
+built-in ash shell.
+
+Finally, you need F</dev/null> inside the chroot for many scripts to work
+- F<cp /dev/null output/target/dev> or bind-mounting your F</dev> will
+both provide this.
+
+After you have compiled and set up your buildroot target, you can copy
+F<staticperl> from the C<App::Staticperl> distribution or from your
+perl f<bin> directory (if you installed it) into the F<output/target>
+filesystem, chroot inside and run it.
+
+=head1 AUTHOR
+
+ Marc Lehmann <schmorp@schmorp.de>
+ http://software.schmorp.de/pkg/staticperl.html

@@ -1,0 +1,13 @@
+Revision history for Perl extension App::Staticperl
+
+TODO: --staticlibs --dynamiclibs
+TODO: self-contained apps, not just perl
+TODO: noautoload
+TODO: modules to watch out for section
+
+0.1   Tue Dec  7 10:23:43 CET 2010
+	- initial release.
+
+0.0   Mon Dec  6 10:44:38 CET 2010
+	- cloned from Convert::Scalar.
+

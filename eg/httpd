@@ -1,0 +1,27 @@
+#! perl
+
+use AnyEvent::HTTPD;
+
+my $httpd = AnyEvent::HTTPD->new (port => 9090);
+
+warn "AnyEvent::HTTPD listening on: http://localhost:9090/\n";
+
+$httpd->reg_cb (
+   '/' => sub {
+      my ($httpd, $req) = @_;
+
+      $req->respond ([200 => "OK", { 'Content-Type' => 'text/html' },
+         "<html><body><h1>files embedded in this staticperl</h1>"
+         . (join "", map "<a href=\"$_\">$_</a><br />", sort +static::list)
+         . "</body></html>"
+      ]);
+   },
+   '' => sub {
+      my ($httpd, $req) = @_;
+
+      my $file = static::find substr $req->url, 1;
+      $req->respond ([200 => "OK", { 'Content-Type' => 'text/plain; charset=utf-8' }, $file]);
+   },
+);
+
+$httpd->run;

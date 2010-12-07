@@ -1,0 +1,16 @@
+README
+Changes
+COPYING
+Makefile.PL
+
+bin/staticperl
+
+eg/httpd
+
+build
+staticperl.sh
+mkbundle
+staticperl.pod
+
+MANIFEST
+META.yml                                 Module meta-data (added by MakeMaker)
