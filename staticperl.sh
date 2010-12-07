@@ -48,6 +48,7 @@ STATICPERL_MODULES="common::sense Pod::Strip PPI::XS Pod::Usage"
 EXTRA_MODULES=""
 
 # overridable functions
+preconfigure()  { : ; }
 postconfigure() { : ; }
 postbuild()     { : ; }
 postinstall()   { : ; }
@@ -62,7 +63,7 @@ postinstall()   { : ; }
 
 # set version in a way that Makefile.PL can extract
 VERSION=VERSION; eval \
-$VERSION=0.1
+$VERSION=0.2
 
 BZ2=bz2
 BZIP2=bzip2
@@ -115,10 +116,7 @@ EOF
 # download/configure/compile/install perl
 
 clean() {
-   cd "$STATICPERL/src/perl-$PERL_VERSION" 2>/dev/null || return
-
-   rm -f staticstamp.configure
-   make distclean >/dev/null 2>&1
+   rm -rf "$STATICPERL/src/perl-$PERL_VERSION"
 }
 
 fetch() {
@@ -151,8 +149,9 @@ unpacking perl
 EOF
 
       mkdir -p unpack
-      $BZIP2 -d <perl-$PERL_VERSION.tar.bz2 | tar xpC unpack \
+      $BZIP2 -d <perl-$PERL_VERSION.tar.bz2 | tar xC unpack \
          || fatal "perl-$PERL_VERSION.tar.bz2: error during unpacking"
+      chmod -R u+w unpack/perl-$PERL_VERSION
       mv unpack/perl-$PERL_VERSION perl-$PERL_VERSION
       rmdir -p unpack
    fi
@@ -175,13 +174,15 @@ configure() {
 configuring $STATICPERL/src/perl-$PERL_VERSION
 EOF
 
-   clean
-
    rm -f "$PERL_PREFIX/staticstamp.install"
+
+   make distclean >/dev/null 2>&1
 
    # I hate them
    grep -q -- -fstack-protector Configure && \
       sedreplace 's/-fstack-protector/-fno-stack-protector/g' Configure
+
+   preconfigure
 
 #   trace configure \
    sh Configure -Duselargefiles \
@@ -247,59 +248,69 @@ EOF
 }
 
 install() {
-   [ -e "$PERL_PREFIX/staticstamp.install" ] && return
+   if ! [ -e "$PERL_PREFIX/staticstamp.install" ]; then
+      build
 
-   build
-
-   verblock <<EOF
+      verblock <<EOF
 installing $STATICPERL/src/perl-$PERL_VERSION
 to $PERL_PREFIX
 EOF
 
-   rm -rf "$PERL_PREFIX"
-   
-   make install || fatal "make install: error while installing"
+      rm -rf "$PERL_PREFIX"
+      
+      make install || fatal "make install: error while installing"
 
-   rcd "$PERL_PREFIX"
+      rcd "$PERL_PREFIX"
 
-   # create a "make install" replacement for CPAN
-   cat >"$PERL_PREFIX"/bin/cpan-make-install <<EOF
-make install UNINST=1
+      # create a "make install" replacement for CPAN
+      cat >"$PERL_PREFIX"/bin/cpan-make-install <<EOF
+make || exit
+
 if find blib/arch/auto -type f | grep -q -v .exists; then
    echo Probably an XS module, rebuilding perl
-   make perl
-   rm -f "$PERL_PREFIX"/bin/perl
-   make -f Makefile.aperl inst_perl
-   make -f Makefile.aperl map_clean
+   if make perl; then
+      mv perl "$PERL_PREFIX"/bin/perl
+      make -f Makefile.aperl map_clean
+   else
+      make -f Makefile.aperl map_clean
+      exit 1
+   fi
 fi
+
+make install UNINST=1
 EOF
-   chmod 755 "$PERL_PREFIX"/bin/cpan-make-install
+      chmod 755 "$PERL_PREFIX"/bin/cpan-make-install
 
-   # trick CPAN into avoiding ~/.cpan completely
-   echo 1 >"$PERL_PREFIX/lib/CPAN/MyConfig.pm"
+      # trick CPAN into avoiding ~/.cpan completely
+      echo 1 >"$PERL_PREFIX/lib/CPAN/MyConfig.pm"
 
-   "$PERL_PREFIX"/bin/perl -MCPAN -e '
-      CPAN::Shell->o (conf => urllist => push => "'"$CPAN"'");
-      CPAN::Shell->o (conf => q<cpan_home>, "'"$STATICPERL"'/cpan");
-      CPAN::Shell->o (conf => q<init>);
-      CPAN::Shell->o (conf => q<cpan_home>, "'"$STATICPERL"'/cpan");
-      CPAN::Shell->o (conf => q<build_dir>, "'"$STATICPERL"'/cpan/build");
-      CPAN::Shell->o (conf => q<prefs_dir>, "'"$STATICPERL"'/cpan/prefs");
-      CPAN::Shell->o (conf => q<histfile> , "'"$STATICPERL"'/cpan/histfile");
-      CPAN::Shell->o (conf => q<keep_source_where>, "'"$STATICPERL"'/cpan/sources");
-      CPAN::Shell->o (conf => q<make_install_make_command>, "'"$PERL_PREFIX"'/bin/cpan-make-install");
-      CPAN::Shell->o (conf => q<prerequisites_policy>, q<follow>);
-      CPAN::Shell->o (conf => q<build_requires_install_policy>, q<no>);
-      CPAN::Shell->o (conf => q<commit>);
-   ' || fatal "error while initialising CPAN"
+      "$PERL_PREFIX"/bin/perl -MCPAN -e '
+         CPAN::Shell->o (conf => urllist => push => "'"$CPAN"'");
+         CPAN::Shell->o (conf => q<cpan_home>, "'"$STATICPERL"'/cpan");
+         CPAN::Shell->o (conf => q<init>);
+         CPAN::Shell->o (conf => q<cpan_home>, "'"$STATICPERL"'/cpan");
+         CPAN::Shell->o (conf => q<build_dir>, "'"$STATICPERL"'/cpan/build");
+         CPAN::Shell->o (conf => q<prefs_dir>, "'"$STATICPERL"'/cpan/prefs");
+         CPAN::Shell->o (conf => q<histfile> , "'"$STATICPERL"'/cpan/histfile");
+         CPAN::Shell->o (conf => q<keep_source_where>, "'"$STATICPERL"'/cpan/sources");
+         CPAN::Shell->o (conf => q<make_install_make_command>, "'"$PERL_PREFIX"'/bin/cpan-make-install");
+         CPAN::Shell->o (conf => q<prerequisites_policy>, q<follow>);
+         CPAN::Shell->o (conf => q<build_requires_install_policy>, q<no>);
+         CPAN::Shell->o (conf => q<commit>);
+      ' || fatal "error while initialising CPAN"
 
-   NOCHECK_INSTALL=+
-   instcpan $STATICPERL_MODULES
-   [ $EXTRA_MODULES ] && instcpan $EXTRA_MODULES
+      touch "$PERL_PREFIX/staticstamp.install"
+   fi
 
-   postinstall || fatal "postinstall hook failed"
+   if ! [ -e "$PERL_PREFIX/staticstamp.postinstall" ]; then
+      NOCHECK_INSTALL=+
+      instcpan $STATICPERL_MODULES
+      [ $EXTRA_MODULES ] && instcpan $EXTRA_MODULES
 
-   touch "$PERL_PREFIX/staticstamp.install"
+      postinstall || fatal "postinstall hook failed"
+
+      touch "$PERL_PREFIX/staticstamp.postinstall"
+   fi
 }
 
 #############################################################################

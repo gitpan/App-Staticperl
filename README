@@ -80,6 +80,11 @@ DESCRIPTION
         perl build and possibly fiddling with some modules. PAR is likely to
         produce results faster.
 
+        Ok, PAR never has worked for me out of the box, and for some people,
+        staticperl does work out of the box, as they don't count "fiddling
+        with module use lists" against it, but nevertheless, staticperl is
+        certainly a bit more difficult to use.
+
 HOW DOES IT WORK?
     Simple: staticperl downloads, compile and installs a perl version of
     your choice in ~/.staticperl. You can add extra modules either by
@@ -172,9 +177,12 @@ THE STATICPERL SCRIPT
         them that you want to have built.
 
     staticperl clean
-        Runs make distclean in the perl source directory (and potentially
-        cleans up other intermediate files). This can be used to clean up
-        intermediate files without removing the installed perl interpreter.
+        Deletes the perl source directory (and potentially cleans up other
+        intermediate files). This can be used to clean up files only needed
+        for building perl, without removing the installed perl interpreter,
+        or to force a re-build from scratch.
+
+        At the moment, it doesn't delete downloaded tarballs.
 
     staticperl distclean
         This wipes your complete ~/.staticperl directory. Be careful with
@@ -485,12 +493,19 @@ THE STATICPERL SCRIPT
           instcpan Anyevent::AIO AnyEvent::HTTPD
        }
 
+    preconfigure
+        Called just before running ./Configur in the perl source directory.
+        Current working directory is the perl source directory.
+
+        This can be used to set any "PERL_xxx" variables, which might be
+        costly to compute.
+
     postconfigure
         Called after configuring, but before building perl. Current working
         directory is the perl source directory.
 
-        Could be used to tailor/patch config.sh (followed by ./Configure -S)
-        or do any other modifications.
+        Could be used to tailor/patch config.sh (followed by sh Configure
+        -S) or do any other modifications.
 
     postbuild
         Called after building, but before installing perl. Current working

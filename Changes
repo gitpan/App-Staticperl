@@ -1,9 +1,20 @@
 Revision history for Perl extension App::Staticperl
 
-TODO: --staticlibs --dynamiclibs
+TODO: --staticlibs
 TODO: self-contained apps, not just perl
 TODO: noautoload
 TODO: modules to watch out for section
+TODO: recipe section (get*ent)
+
+0.2   Tue Dec  7 21:50:07 CET 2010
+        - make it work as non-root user.
+        - make module install/linking much more robust against
+          build and link failures, i.e. try to only install
+          the module when it was actualyl built successfully.
+        - split "install" phase into perl install and module
+          install, so fixing your postinstall hook takes less time.
+        - change make clean to delete the sources dir.
+        - add preconfigure hook.
 
 0.1   Tue Dec  7 10:23:43 CET 2010
 	- initial release.
