@@ -1,10 +1,14 @@
 Revision history for Perl extension App::Staticperl
 
 TODO: --staticlibs
-TODO: self-contained apps, not just perl
 TODO: noautoload
 TODO: modules to watch out for section
 TODO: recipe section (get*ent)
+
+0.9   Wed Dec  8 23:26:48 CET 2010
+	- support AutoLoader'ed functions with prototypes.
+        - new mkapp / --app option for mkbundle, to create
+          standalone applications.
 
 0.2   Tue Dec  7 21:50:07 CET 2010
         - make it work as non-root user.

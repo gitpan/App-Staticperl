@@ -6,6 +6,7 @@
 our $VERBOSE  = 1;
 our $STRIP    = "pod"; # none, pod or ppi
 our $PERL     = 0;
+our $APP;
 our $VERIFY   = 0;
 our $STATIC   = 0;
 
@@ -90,7 +91,7 @@ sub scan_al {
    my $package;
 
    while (<$fh>) {
-      if (/^\s*sub\s+([^[:space:];]+)\s*;?\s*$/) {
+      if (/^\s*sub\s+ ([^[:space:];]+) \s* (?:\([^)]*\))? \s*;?\s*$/x) {
          my $al = "auto/$package/$1.al";
          my $inc = find_inc $al;
 
@@ -222,6 +223,10 @@ sub cmd_file {
 
       if ($cmd eq "strip") {
          $STRIP = $args;
+      } elsif ($cmd eq "perl") {
+         $PERL = 1;
+      } elsif ($cmd eq "app") {
+         $APP = $args;
       } elsif ($cmd eq "eval") {
          trace_eval $_;
       } elsif ($cmd eq "use") {
@@ -252,6 +257,7 @@ GetOptions
    "verbose|v" => sub { ++$VERBOSE },
    "quiet|q"   => sub { --$VERBOSE },
    "perl"      => \$PERL,
+   "app=s"     => \$APP,
    "eval|e=s"  => sub { trace_eval   $_[1] },
    "use|M=s"   => sub { trace_module $_[1] },
    "boot=s"    => sub { cmd_boot     $_[1] },
@@ -260,6 +266,9 @@ GetOptions
    "static"    => sub { $STATIC = 1 },
    "<>"        => sub { cmd_file     $_[0] },
    or exit 1;
+
+die "cannot specify both --app and --perl\n"
+   if $PERL and defined $APP;
 
 my $data;
 my @index;
@@ -613,12 +622,6 @@ XS(list)
   XSRETURN ($varpfx\_count);
 }
 
-static char *args[] = {
-  "staticperl",
-  "-e",
-  "0"
-};
-
 EOF
 
 #############################################################################
@@ -667,7 +670,39 @@ EOF
 #############################################################################
 # optional perl_init/perl_destroy
 
-if ($PERL) {
+if ($APP) {
+   print $fh <<EOF;
+
+int
+main (int argc, char *argv [])
+{
+  extern char **environ;
+  int exitstatus;
+
+  static char *args[] = {
+    "staticperl",
+    "-e",
+    "0"
+  };
+
+  PERL_SYS_INIT3 (&argc, &argv, &environ);
+  staticperl = perl_alloc ();
+  perl_construct (staticperl);
+
+  PL_exit_flags |= PERL_EXIT_DESTRUCT_END;
+
+  exitstatus = perl_parse (staticperl, staticperl_xs_init, sizeof (args) / sizeof (*args), args, environ);
+  if (!exitstatus)
+    perl_run (staticperl);
+
+  exitstatus = perl_destruct (staticperl);
+  perl_free (staticperl);
+  PERL_SYS_TERM ();
+
+  return exitstatus;
+}
+EOF
+} elsif ($PERL) {
    print $fh <<EOF;
 
 int
@@ -702,6 +737,12 @@ staticperl_init (void)
   extern char **environ;
   int argc = sizeof (args) / sizeof (args [0]);
   char **argv = args;
+
+  static char *args[] = {
+    "staticperl",
+    "-e",
+    "0"
+  };
 
   PERL_SYS_INIT3 (&argc, &argv, &environ);
   staticperl = perl_alloc ();
@@ -761,8 +802,12 @@ print -s "$PREFIX.c", " octets (", (length $data) , " data octets).\n\n";
    print $fh $str;
 }
 
-if ($PERL) {
-   system "$Config{cc} \$(cat bundle.ccopts\) -o perl bundle.c \$(cat bundle.ldopts\)";
+if ($PERL or defined $APP) {
+   $APP = "perl" unless defined $APP;
+
+   print "generating $APP...\n";
+
+   system "$Config{cc} \$(cat bundle.ccopts\) -o \Q$APP\E bundle.c \$(cat bundle.ldopts\)";
 
    unlink "$PREFIX.$_"
       for qw(ccopts ldopts c h);

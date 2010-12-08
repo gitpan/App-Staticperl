@@ -14,6 +14,7 @@ SYNOPSIS
        staticperl instcpan modulename... # install modules from CPAN
        staticperl mkbundle <bundle-args...> # see documentation
        staticperl mkperl <bundle-args...>   # see documentation
+       staticperl mkapp appname <bundle-args...> # see documentation
 
     Typical Examples:
 
@@ -22,6 +23,8 @@ SYNOPSIS
        staticperl mkperl -M '"Config_heavy.pl"' # build a perl that supports -V
        staticperl mkperl -MAnyEvent::Impl::Perl -MAnyEvent::HTTPD -MURI -MURI::http
                             # build a perl with the above modules linked in
+       staticperl mkapp myapp --boot mainprog mymodules
+                            # build a binary "myapp" from mainprog and mymodules
 
 DESCRIPTION
     This script helps you creating single-file perl interpreters, or
@@ -227,6 +230,16 @@ THE STATICPERL SCRIPT
     module. I found out about these dependencies by carefully watching any
     error messages about missing modules...
 
+    Instead of building a new perl binary, you can also build a standalone
+    application:
+
+       # build the app
+       staticperl mkapp app --boot eg/httpd \
+                        -MAnyEvent::Impl::Perl -MAnyEvent::HTTPD -MURI::http
+
+       # run it
+       ./app
+
    OPTION PROCESSING
     All options can be given as arguments on the command line (typically
     using long (e.g. "--verbose") or short option (e.g. "-v") style). Since
@@ -286,6 +299,27 @@ THE STATICPERL SCRIPT
 
            # build a new ./perl with only common::sense in it - very small :)
            staticperl mkperl -Mcommon::sense
+
+    --app name
+        After writing out the bundle files, try to link a new standalone
+        program. It will be called "name", and the bundle files get removed
+        after linking it.
+
+        The difference to the (mutually exclusive) "--perl" option is that
+        the binary created by this option will not try to act as a perl
+        interpreter - instead it will simply initialise the perl
+        interpreter, clean it up and exit.
+
+        This switch is automatically used when staticperl is invoked with
+        the "mkapp" command (instead of "mkbundle"):
+
+        To let it do something useful you *must* add some boot code, e.g.
+        with the "--boot" option.
+
+        Example: create a standalone perl binary that will execute appfile
+        when it is started.
+
+           staticperl mkbundle --app myexe --boot appfile
 
     --use module | -Mmodule
         Include the named module and all direct dependencies. This is done

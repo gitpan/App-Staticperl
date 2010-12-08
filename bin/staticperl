@@ -63,7 +63,7 @@ postinstall()   { : ; }
 
 # set version in a way that Makefile.PL can extract
 VERSION=VERSION; eval \
-$VERSION=0.2
+$VERSION=0.9
 
 BZ2=bz2
 BZIP2=bzip2
@@ -394,6 +394,7 @@ catmkbundle() {
 our $VERBOSE  = 1;
 our $STRIP    = "pod"; # none, pod or ppi
 our $PERL     = 0;
+our $APP;
 our $VERIFY   = 0;
 our $STATIC   = 0;
 
@@ -478,7 +479,7 @@ sub scan_al {
    my $package;
 
    while (<$fh>) {
-      if (/^\s*sub\s+([^[:space:];]+)\s*;?\s*$/) {
+      if (/^\s*sub\s+ ([^[:space:];]+) \s* (?:\([^)]*\))? \s*;?\s*$/x) {
          my $al = "auto/$package/$1.al";
          my $inc = find_inc $al;
 
@@ -610,6 +611,10 @@ sub cmd_file {
 
       if ($cmd eq "strip") {
          $STRIP = $args;
+      } elsif ($cmd eq "perl") {
+         $PERL = 1;
+      } elsif ($cmd eq "app") {
+         $APP = $args;
       } elsif ($cmd eq "eval") {
          trace_eval $_;
       } elsif ($cmd eq "use") {
@@ -640,6 +645,7 @@ GetOptions
    "verbose|v" => sub { ++$VERBOSE },
    "quiet|q"   => sub { --$VERBOSE },
    "perl"      => \$PERL,
+   "app=s"     => \$APP,
    "eval|e=s"  => sub { trace_eval   $_[1] },
    "use|M=s"   => sub { trace_module $_[1] },
    "boot=s"    => sub { cmd_boot     $_[1] },
@@ -648,6 +654,9 @@ GetOptions
    "static"    => sub { $STATIC = 1 },
    "<>"        => sub { cmd_file     $_[0] },
    or exit 1;
+
+die "cannot specify both --app and --perl\n"
+   if $PERL and defined $APP;
 
 my $data;
 my @index;
@@ -1001,12 +1010,6 @@ XS(list)
   XSRETURN ($varpfx\_count);
 }
 
-static char *args[] = {
-  "staticperl",
-  "-e",
-  "0"
-};
-
 EOF
 
 #############################################################################
@@ -1055,7 +1058,39 @@ EOF
 #############################################################################
 # optional perl_init/perl_destroy
 
-if ($PERL) {
+if ($APP) {
+   print $fh <<EOF;
+
+int
+main (int argc, char *argv [])
+{
+  extern char **environ;
+  int exitstatus;
+
+  static char *args[] = {
+    "staticperl",
+    "-e",
+    "0"
+  };
+
+  PERL_SYS_INIT3 (&argc, &argv, &environ);
+  staticperl = perl_alloc ();
+  perl_construct (staticperl);
+
+  PL_exit_flags |= PERL_EXIT_DESTRUCT_END;
+
+  exitstatus = perl_parse (staticperl, staticperl_xs_init, sizeof (args) / sizeof (*args), args, environ);
+  if (!exitstatus)
+    perl_run (staticperl);
+
+  exitstatus = perl_destruct (staticperl);
+  perl_free (staticperl);
+  PERL_SYS_TERM ();
+
+  return exitstatus;
+}
+EOF
+} elsif ($PERL) {
    print $fh <<EOF;
 
 int
@@ -1090,6 +1125,12 @@ staticperl_init (void)
   extern char **environ;
   int argc = sizeof (args) / sizeof (args [0]);
   char **argv = args;
+
+  static char *args[] = {
+    "staticperl",
+    "-e",
+    "0"
+  };
 
   PERL_SYS_INIT3 (&argc, &argv, &environ);
   staticperl = perl_alloc ();
@@ -1149,8 +1190,12 @@ print -s "$PREFIX.c", " octets (", (length $data) , " data octets).\n\n";
    print $fh $str;
 }
 
-if ($PERL) {
-   system "$Config{cc} \$(cat bundle.ccopts\) -o perl bundle.c \$(cat bundle.ldopts\)";
+if ($PERL or defined $APP) {
+   $APP = "perl" unless defined $APP;
+
+   print "generating $APP...\n";
+
+   system "$Config{cc} \$(cat bundle.ccopts\) -o \Q$APP\E bundle.c \$(cat bundle.ldopts\)";
 
    unlink "$PREFIX.$_"
       for qw(ccopts ldopts c h);
@@ -1201,6 +1246,11 @@ EOF
             bundle --perl "$@"
             exit
             ;;
+         mkapp )
+            ( install )
+            bundle --app "$@"
+            exit
+            ;;
          help )
             podusage 2
             ;;
@@ -1236,6 +1286,7 @@ staticperl - perl, libc, 100 modules, all in one 500kb file
    staticperl instcpan modulename... # install modules from CPAN
    staticperl mkbundle <bundle-args...> # see documentation
    staticperl mkperl <bundle-args...>   # see documentation
+   staticperl mkapp appname <bundle-args...> # see documentation
 
 Typical Examples:
 
@@ -1244,6 +1295,8 @@ Typical Examples:
    staticperl mkperl -M '"Config_heavy.pl"' # build a perl that supports -V
    staticperl mkperl -MAnyEvent::Impl::Perl -MAnyEvent::HTTPD -MURI -MURI::http
                         # build a perl with the above modules linked in
+   staticperl mkapp myapp --boot mainprog mymodules
+                        # build a binary "myapp" from mainprog and mymodules
 
 =head1 DESCRIPTION
 
@@ -1466,6 +1519,16 @@ modules - since L<AnyEvent::HTTPD> only needs C<http> URIs, we only need
 to include that module. I found out about these dependencies by carefully
 watching any error messages about missing modules...
 
+Instead of building a new perl binary, you can also build a standalone
+application:
+
+   # build the app
+   staticperl mkapp app --boot eg/httpd \
+                    -MAnyEvent::Impl::Perl -MAnyEvent::HTTPD -MURI::http
+
+   # run it
+   ./app
+
 =head3 OPTION PROCESSING
 
 All options can be given as arguments on the command line (typically
@@ -1533,6 +1596,28 @@ C<mkperl> command (instead of C<mkbundle>):
 
    # build a new ./perl with only common::sense in it - very small :)
    staticperl mkperl -Mcommon::sense
+
+=item --app name
+
+After writing out the bundle files, try to link a new standalone
+program. It will be called C<name>, and the bundle files get removed after
+linking it.
+
+The difference to the (mutually exclusive) C<--perl> option is that the
+binary created by this option will not try to act as a perl interpreter -
+instead it will simply initialise the perl interpreter, clean it up and
+exit.
+
+This switch is automatically used when F<staticperl> is invoked with the
+C<mkapp> command (instead of C<mkbundle>):
+
+To let it do something useful you I<must> add some boot code, e.g. with
+the C<--boot> option.
+
+Example: create a standalone perl binary that will execute F<appfile> when
+it is started.
+
+   staticperl mkbundle --app myexe --boot appfile
 
 =item --use module | -Mmodule
 

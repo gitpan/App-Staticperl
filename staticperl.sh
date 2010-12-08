@@ -63,7 +63,7 @@ postinstall()   { : ; }
 
 # set version in a way that Makefile.PL can extract
 VERSION=VERSION; eval \
-$VERSION=0.2
+$VERSION=0.9
 
 BZ2=bz2
 BZIP2=bzip2
@@ -430,6 +430,11 @@ EOF
          mkperl )
             ( install )
             bundle --perl "$@"
+            exit
+            ;;
+         mkapp )
+            ( install )
+            bundle --app "$@"
             exit
             ;;
          help )
