@@ -12,5 +12,7 @@ staticperl.sh
 mkbundle
 staticperl.pod
 
+t/01_vollwaesche.t
+
 MANIFEST
 META.yml                                 Module meta-data (added by MakeMaker)

@@ -30,16 +30,21 @@ Typical Examples:
 
 =head1 DESCRIPTION
 
-This script helps you creating single-file perl interpreters, or embedding
-a perl interpreter in your applications. Single-file means that it is
-fully self-contained - no separate shared objects, no autoload fragments,
-no .pm or .pl files are needed. And when linking statically, you can
-create (or embed) a single file that contains perl interpreter, libc, all
-the modules you need and all the libraries you need.
+This script helps you to create single-file perl interpreters
+or applications, or embedding a perl interpreter in your
+applications. Single-file means that it is fully self-contained - no
+separate shared objects, no autoload fragments, no .pm or .pl files are
+needed. And when linking statically, you can create (or embed) a single
+file that contains perl interpreter, libc, all the modules you need, all
+the libraries you need and of course your actual program.
 
 With F<uClibc> and F<upx> on x86, you can create a single 500kb binary
 that contains perl and 100 modules such as POSIX, AnyEvent, EV, IO::AIO,
 Coro and so on. Or any other choice of modules.
+
+To see how this turns out, you can try out smallperl and bigperl, two
+pre-built static and compressed perl binaries with many and even more
+modules: just follow the links at L<http://staticperl.schmorp.de/>.
 
 The created files do not need write access to the file system (like PAR
 does). In fact, since this script is in many ways similar to PAR::Packer,
@@ -68,16 +73,20 @@ slow and memory-consuming business).
 F<staticperl> loads all required files directly from memory. There is no
 need to unpack files into a temporary directory.
 
-=item * More control over included files.
+=item * More control over included files, more burden.
 
 PAR tries to be maintenance and hassle-free - it tries to include more
-files than necessary to make sure everything works out of the box. The
-extra files (such as the unicode database) can take substantial amounts of
-memory and file size.
+files than necessary to make sure everything works out of the box. It
+mostly succeeds at this, but he extra files (such as the unicode database)
+can take substantial amounts of memory and file size.
 
 With F<staticperl>, the burden is mostly with the developer - only direct
 compile-time dependencies and L<AutoLoader> are handled automatically.
 This means the modules to include often need to be tweaked manually.
+
+All this does not preclude more permissive modes to be implemented in
+the future, but right now, you have to resolve state hidden dependencies
+manually.
 
 =item * PAR works out of the box, F<staticperl> does not.
 
@@ -108,9 +117,9 @@ and then either build a new perl binary (that acts just like a normal perl
 except everything is compiled in), or you create bundle files (basically C
 sources you can use to embed all files into your project).
 
-This step is very fast (a few seconds if PPI is not used for stripping,
-more seconds otherwise, as PPI is very slow), and can be tweaked and
-repeated as often as necessary.
+This step is very fast (a few seconds if PPI is not used for stripping, or
+the stripped files are in the cache), and can be tweaked and repeated as
+often as necessary.
 
 =head1 THE F<STATICPERL> SCRIPT
 
@@ -149,6 +158,10 @@ To force recompilation or reinstallation, you need to run F<staticperl
 distclean> first.
 
 =over 4
+
+=item F<staticperl version>
+
+Prints some info about the version of the F<staticperl> script you are using.
 
 =item F<staticperl fetch>
 
@@ -283,6 +296,44 @@ All options that specify modules or files to be added are processed in the
 order given on the command line (that affects the C<--use> and C<--eval>
 options at the moment).
 
+=head3 PACKAGE SELECTION WORKFLOW
+
+F<staticperl mkbundle> has a number of options to control package
+selection. This section describes how they interact with each other. Also,
+since I am still a newbie w.r.t. these issues, maybe future versions of
+F<staticperl> will change this, so watch out :)
+
+The idiom "in order" means "in order that they are specified on the
+commandline". If you use a bundle specification file, then the options
+will be processed as if they were given in place of the bundle file name.
+
+=over 4
+
+=item 1. apply all C<--use>, C<--eval>, C<--add>, C<--addbin> and
+C<--incglob> options, in order.
+
+In addition, C<--use> and C<--eval> dependencies will be added when the
+options are processed.
+
+=item 2. apply all C<--include> and C<--exclude> options, in order.
+
+All this step does is potentially reduce the number of files already
+selected or found in phase 1.
+
+=item 3. find all modules (== F<.pm> files), gather their static archives
+(F<.a>) and AutoLoader splitfiles (F<.ix> and F<.al> files), find any
+extra libraries they need for linking (F<extralibs.ld>) and optionally
+evaluate any F<.packlist> files.
+
+This step is required to link against XS extensions and also adds files
+required for L<AutoLoader> to do it's job.
+
+=back
+
+After this, all the files selected for bundling will be read and processed
+(stripped), the bundle files will be written, and optionally a new F<perl>
+or application binary will be linked.
+
 =head3 MKBUNDLE OPTIONS
 
 =over 4
@@ -304,11 +355,12 @@ The default is C<pod>, which uses the L<Pod::Strip> module to remove all
 pod documentation, which is very fast and reduces file size a lot.
 
 The C<ppi> method uses L<PPI> to parse and condense the perl sources. This
-saves a lot more than just L<Pod::Strip>, and is generally safer, but
-is also a lot slower, so is best used for production builds. Note that
-this method doesn't optimise for raw file size, but for best compression
-(that means that the uncompressed file size is a bit larger, but the files
-compress better, e.g. with F<upx>).
+saves a lot more than just L<Pod::Strip>, and is generally safer,
+but is also a lot slower (some files take almost a minute to strip -
+F<staticperl> maintains a cache of stripped files to speed up subsequent
+runs for this reason). Note that this method doesn't optimise for raw file
+size, but for best compression (that means that the uncompressed file size
+is a bit larger, but the files compress better, e.g. with F<upx>).
 
 Last not least, if you need accurate line numbers in error messages,
 or in the unlikely case where C<pod> is too slow, or some module gets
@@ -412,7 +464,41 @@ initialised. This can be used to modify C<@INC> or anything else before
 the perl interpreter executes scripts given on the command line (or via
 C<-e>). This works even in an embedded interpreter.
 
-=item --add "file" | --add "file alias"
+=item --usepacklist
+
+Read F<.packlist> files for each distribution that happens to match a
+module name you specified. Sounds weird, and it is, so expect semantics to
+change somehow in the future.
+
+The idea is that most CPAN distributions have a F<.pm> file that matches
+the name of the distribution (which is rather reasonable after all).
+
+If this switch is enabled, then if any of the F<.pm> files that have been
+selected match an install distribution, then all F<.pm>, F<.pl>, F<.al>
+and F<.ix> files installed by this distribution are also included.
+
+For example, using this switch, when the L<URI> module is specified, then
+all L<URI> submodules that have been installed via the CPAN distribution
+are included as well, so you don't have to manually specify them.
+
+=item --incglob pattern
+
+This goes through all library directories and tries to match any F<.pm>
+and F<.pl> files against the extended glob pattern (see below). If a file
+matches, it is added. This switch will automatically detect L<AutoLoader>
+files and the required link libraries for XS modules, but it will I<not>
+scan the file for dependencies (at the moment).
+
+This is mainly useful to include "everything":
+
+   --incglob '*'
+
+Or to include perl libraries, or trees of those, such as the unicode
+database files needed by many other modules:
+
+   --incglob '/unicore/**.pl'
+
+=item --add file | --add "file alias"
 
 Adds the given (perl) file into the bundle (and optionally call it
 "alias"). This is useful to include any custom files into the bundle.
@@ -428,7 +514,7 @@ It is also a great way to add any custom modules:
    add file2 myfiles/file2
    add file3 myfiles/file3
 
-=item --binadd "file" | --add "file alias"
+=item --binadd file | --add "file alias"
 
 Just like C<--add>, except that it treats the file as binary and adds it
 without any processing.
@@ -439,6 +525,19 @@ directory, such as C</res/name>.
 
 You can later get a copy of these files by calling C<staticperl::find
 "alias">.
+
+=item --include pattern | -i pattern | --exclude pattern | -x pattern
+
+These two options define an include/exclude filter that is used after all
+files selected by the other options have been found. Each include/exclude
+is applied to all files found so far - an include makes sure that the
+given files will be part of the resulting file set, an exclude will
+exclude files. The patterns are "extended glob patterns" (see below).
+
+For example, to include everything, except C<Devel> modules, but still
+include F<Devel::PPPort>, you could use this:
+
+   --incglob '*' -i '/Devel/PPPort.pm' -x '/Devel/**'
 
 =item --static
 
@@ -453,6 +552,24 @@ either. Try uClibc if you want to create fully statically linked
 executables, or try the C<--staticlibs> option to link only some libraries
 statically.
 
+=item --staticlib libname
+
+When not linking fully statically, this option allows you to link specific
+libraries statically. What it does is simply replace all occurances of
+C<-llibname> with the GCC-specific C<-Wl,-Bstatic -llibname -Wl,-Bdynamic>
+option.
+
+This will have no effect unless the library is actually linked against,
+specifically, C<--staticlib> will not link against the named library
+unless it would be linked against anyway.
+
+Example: link libcrypt statically into the binary.
+
+   staticperl mkperl -MIO::AIO --staticlib crypt
+
+   # ldopts might nwo contain:
+   # -lm -Wl,-Bstatic -lcrypt -Wl,-Bdynamic -lpthread
+
 =item any other argument
 
 Any other argument is interpreted as a bundle specification file, which
@@ -460,17 +577,61 @@ supports most long options (without extra quoting), one option per line.
 
 =back
 
-=head2 F<STATCPERL> CONFIGURATION AND HOOKS
+=head3 EXTENDED GLOB PATTERNS
 
-During (each) startup, F<staticperl> tries to source the following shell
-files in order:
+Some options of F<staticperl mkbundle> expect an I<extended glob
+pattern>. This is neither a normal shell glob nor a regex, but something
+in between. The idea has been copied from rsync, and there are the current
+matching rules:
+
+=over 4
+
+=item Patterns starting with F</> will be a anchored at the root of the library tree.
+
+That is, F</unicore> will match the F<unicore> directory in C<@INC>, but
+nothing inside, and neither any other file or directory called F<unicore>
+anywhere else in the hierarchy.
+
+=item Patterns not starting with F</> will be anchored at the end of the path.
+
+That is, F<idna.pl> will match any file called F<idna.pl> anywhere in the
+hierarchy, but not any directories of the same name.
+
+=item A F<*> matches any single component.
+
+That is, F</unicore/*.pl> would match all F<.pl> files directly inside
+C</unicore>, not any deeper level F<.pl> files. Or in other words, F<*>
+will not match slashes.
+
+=item A F<**> matches anything.
+
+That is, F</unicore/**.pl> would match all F<.pl> files under F</unicore>,
+no matter how deeply nested they are inside subdirectories.
+
+=item A F<?> matches a single character within a component.
+
+That is, F</Encode/??.pm> matches F</Encode/JP.pm>, but not the
+hypothetical F</Encode/J/.pm>, as F<?> does not match F</>.
+
+=back
+
+=head2 F<STATICPERL> CONFIGURATION AND HOOKS
+
+During (each) startup, F<staticperl> tries to source some shell files to
+allow you to fine-tune/override configuration settings.
+
+In them you can override shell variables, or define shell functions
+("hooks") to be called at specific phases during installation. For
+example, you could define a C<postinstall> hook to install additional
+modules from CPAN each time you start from scratch.
+
+If the env variable C<$STATICPERLRC> is set, then F<staticperl> will try
+to source the file named with it only. Otherwise, it tries the following
+shell files in order:
 
    /etc/staticperlrc
    ~/.staticperlrc
    $STATICPERL/rc
-
-They can be used to override shell variables, or define functions to be
-called at specific phases.
 
 Note that the last file is erased during F<staticperl distclean>, so
 generally should not be used.
@@ -783,6 +944,124 @@ After you have compiled and set up your buildroot target, you can copy
 F<staticperl> from the C<App::Staticperl> distribution or from your
 perl f<bin> directory (if you installed it) into the F<output/target>
 filesystem, chroot inside and run it.
+
+=head1 RECIPES / SPECIFIC MODULES
+
+This section contains some common(?) recipes and information about
+problems with some common modules or perl constructs that require extra
+files to be included.
+
+=head2 MODULES
+
+=over 4
+
+=item utf8
+
+Some functionality in the utf8 module, such as swash handling (used
+for unicode character ranges in regexes) is implemented in the
+C<"utf8_heavy.pl"> library:
+
+   -M'"utf8_heavy.pl"'
+
+Many Unicode properties in turn are defined in separate modules,
+such as C<"unicore/Heavy.pl"> and more specific data tables such as
+C<"unicore/To/Digit.pl"> or C<"unicore/lib/Perl/Word.pl">. These tables
+are big (7MB uncompressed, although F<staticperl> contains special
+handling for those files), so including them on demand by your application
+only might pay off.
+
+To simply include the whole unicode database, use:
+
+   --incglob '/unicore/*.pl'
+
+=item AnyEvent
+
+AnyEvent needs a backend implementation that it will load in a delayed
+fashion. The L<AnyEvent::Impl::Perl> backend is the default choice
+for AnyEvent if it can't find anything else, and is usually a safe
+fallback. If you plan to use e.g. L<EV> (L<POE>...), then you need to
+include the L<AnyEvent::Impl::EV> (L<AnyEvent::Impl::POE>...) backend as
+well.
+
+If you want to handle IRIs or IDNs (L<AnyEvent::Util> punycode and idn
+functions), you also need to include C<"AnyEvent/Util/idna.pl"> and
+C<"AnyEvent/Util/uts46data.pl">.
+
+Or you can use C<--usepacklist> and specify C<-MAnyEvent> to include
+everything.
+
+=item Carp
+
+Carp had (in older versions of perl) a dependency on L<Carp::Heavy>. As of
+perl 5.12.2 (maybe earlier), this dependency no longer exists.
+
+=item Config
+
+The F<perl -V> switch (as well as many modules) needs L<Config>, which in
+turn might need L<"Config_heavy.pl">. Including the latter gives you
+both.
+
+=item Term::ReadLine::Perl
+
+Also needs L<Term::ReadLine::readline>, or C<--usepacklist>.
+
+=item URI
+
+URI implements schemes as separate modules - the generic URL scheme is
+implemented in L<URI::_generic>, HTTP is implemented in L<URI::http>. If
+you need to use any of these schemes, you should include these manually,
+or use C<--usepacklist>.
+
+=back
+
+=head2 RECIPES
+
+=over 4
+
+=item Linking everything in
+
+To link just about everything installed in the perl library into a new
+perl, try this:
+
+   staticperl mkperl --strip ppi --incglob '*'
+
+=item Getting rid of netdb function
+
+The perl core has lots of netdb functions (C<getnetbyname>, C<getgrent>
+and so on) that few applications use. You can avoid compiling them in by
+putting the following fragment into a C<preconfigure> hook:
+
+   preconfigure() {
+      for sym in \
+         d_getgrnam_r d_endgrent d_endgrent_r d_endhent \
+         d_endhostent_r d_endnent d_endnetent_r d_endpent \
+         d_endprotoent_r d_endpwent d_endpwent_r d_endsent \
+         d_endservent_r d_getgrent d_getgrent_r d_getgrgid_r \
+         d_getgrnam_r d_gethbyaddr d_gethent d_getsbyport \
+         d_gethostbyaddr_r d_gethostbyname_r d_gethostent_r \
+         d_getlogin_r d_getnbyaddr d_getnbyname d_getnent \
+         d_getnetbyaddr_r d_getnetbyname_r d_getnetent_r \
+         d_getpent d_getpbyname d_getpbynumber d_getprotobyname_r \
+         d_getprotobynumber_r d_getprotoent_r d_getpwent \
+         d_getpwent_r d_getpwnam_r d_getpwuid_r d_getsent \
+         d_getservbyname_r d_getservbyport_r d_getservent_r \
+         d_getspnam_r d_getsbyname
+         # d_gethbyname
+      do
+         PERL_CONFIGURE="$PERL_CONFIGURE -U$sym"
+      done
+   }
+
+This mostly gains space when linking staticaly, as the functions will
+liekly not be linked in. The gain for dynamically-linked binaries is
+smaller.
+
+Also, this leaves C<gethostbyname> in - not only is it actually used
+often, the L<Socket> module also exposes it, so leaving it out usually
+gains little. Why Socket exposes a C function that is in the core already
+is anybody's guess.
+
+=back
 
 =head1 AUTHOR
 

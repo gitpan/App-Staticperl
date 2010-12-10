@@ -4,13 +4,11 @@
 # configuration to fill in
 
 STATICPERL=~/.staticperl
-CPAN=http://mirror.netcologne.de/cpan/ # which mirror to use
+CPAN=http://mirror.netcologne.de/cpan # which mirror to use
 EMAIL="read the documentation <rtfm@example.org>"
 
-MKBUNDLE="$STATICPERL/mkbundle"
 
 # perl build variables
-PERL_PREFIX="$STATICPERL/perl" # where the perl gets installed
 PERL_VERSION=5.12.2 # 5.8.9 is also a good choice
 PERL_CONFIGURE="" # additional Configure arguments
 PERL_CPPFLAGS="-DPERL_DISABLE_PMC -DPERL_ARENA_SIZE=65536 -D_GNU_SOURCE -DNDEBUG -USITELIB_EXP -USITEARCHEXP -UARCHLIB_EXP"
@@ -54,16 +52,26 @@ postbuild()     { : ; }
 postinstall()   { : ; }
 
 # now source user config, if any
-[ -r /etc/staticperlrc ] && . /etc/staticperlrc
-[ -r ~/.staticperlrc   ] && . ~/.staticperlrc
-[ -r "$STATICPERL/rc"  ] && . "$STATICPERL/rc"
+if [ "$STATICPERLRC" ]; then
+   . "$STATICPERLRC"
+else
+   [ -r /etc/staticperlrc ] && . /etc/staticperlrc
+   [ -r ~/.staticperlrc   ] && . ~/.staticperlrc
+   [ -r "$STATICPERL/rc"  ] && . "$STATICPERL/rc"
+fi
 
 #############################################################################
 # support
 
+MKBUNDLE="${MKBUNDLE:=$STATICPERL/mkbundle}"
+PERL_PREFIX="${PERL_PREFIX:=$STATICPERL/perl}" # where the perl gets installed
+
+unset PERL5OPT PERL5LIB PERLLIB PERL_UNICODE PERLIO_DEBUG 
+export LC_ALL=C # just to be on the safe side
+
 # set version in a way that Makefile.PL can extract
 VERSION=VERSION; eval \
-$VERSION=0.9
+$VERSION=0.91
 
 BZ2=bz2
 BZIP2=bzip2
@@ -106,7 +114,7 @@ trap wait 0
 
 distclean() {
    verblock <<EOF
-deleting everything installed by this script
+   deleting everything installed by this script (rm -rf $STATICPERL)
 EOF
 
    rm -rf "$STATICPERL"
@@ -149,7 +157,7 @@ unpacking perl
 EOF
 
       mkdir -p unpack
-      $BZIP2 -d <perl-$PERL_VERSION.tar.bz2 | tar xC unpack \
+      $BZIP2 -d <perl-$PERL_VERSION.tar.bz2 | tar xfC - unpack \
          || fatal "perl-$PERL_VERSION.tar.bz2: error during unpacking"
       chmod -R u+w unpack/perl-$PERL_VERSION
       mv unpack/perl-$PERL_VERSION perl-$PERL_VERSION
@@ -256,8 +264,12 @@ installing $STATICPERL/src/perl-$PERL_VERSION
 to $PERL_PREFIX
 EOF
 
-      rm -rf "$PERL_PREFIX"
-      
+      ln -sf "perl/bin/" "$STATICPERL/bin"
+      ln -sf "perl/lib/" "$STATICPERL/lib"
+
+      ln -sf "$PERL_PREFIX" "$STATICPERL/perl" # might get overwritten
+      rm -rf "$PERL_PREFIX"                    # by this rm -rf
+
       make install || fatal "make install: error while installing"
 
       rcd "$PERL_PREFIX"
@@ -393,7 +405,9 @@ MKBUNDLE
 bundle() {
    catmkbundle >"$MKBUNDLE~" || fatal "$MKBUNDLE~: cannot create"
    chmod 755 "$MKBUNDLE~" && mv "$MKBUNDLE~" "$MKBUNDLE"
-   "$PERL_PREFIX/bin/perl" -- "$MKBUNDLE" "$@"
+   CACHE="$STATICPERL/cache"
+   mkdir -p "$CACHE"
+   "$PERL_PREFIX/bin/perl" -- "$MKBUNDLE" --cache "$CACHE" "$@"
 }
 
 if [ $# -gt 0 ]; then
@@ -403,10 +417,10 @@ if [ $# -gt 0 ]; then
 
       command="${1#--}"; shift
       case "$command" in
+         version )
+            echo "staticperl version $VERSION"
+            ;;
          fetch | configure | build | install | clean | distclean)
-            verblock <<EOF
-$command
-EOF
             ( "$command" )
             ;;
          instsrc )

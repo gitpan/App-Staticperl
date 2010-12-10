@@ -1,9 +1,26 @@
 Revision history for Perl extension App::Staticperl
 
-TODO: --staticlibs
 TODO: noautoload
-TODO: modules to watch out for section
-TODO: recipe section (get*ent)
+TODO: --ignore-env
+TODO: / at glob end == (.pm|/.*)?
+TODO: sort out packlist vs. other check/incldue ordering, this is confusing.
+
+0.91  Fri Dec 10 22:13:43 CET 2010
+	- add testsuite (yeah, should be optional - send patches).
+	- started to maintain two demo builds: bigperl and smallperl,
+          on http://staticperl.schmorp.de.
+	- implemented --staticlib option.
+        - special unicore/ compression (but much more could be done,
+          especially for the uncompressed case).
+        - implemented a strip cache, speeding up ppi stripping enourmously.
+        - implemented --include/--exclude options.
+        - try to port the tar call to freebsd (reported and analyzed
+          by Thomas Linden).
+        - (hopefully) better meaning of verbose levels.
+        - avoid deadlocking in --eval (unlikely, but possible).
+        - implement $STATICPERLRC.
+        - do all option AND bundle file processing with Getopt::Long,
+          to make maintenance easier.
 
 0.9   Wed Dec  8 23:26:48 CET 2010
 	- support AutoLoader'ed functions with prototypes.
