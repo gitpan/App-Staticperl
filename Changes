@@ -5,6 +5,10 @@ TODO: --ignore-env
 TODO: / at glob end == (.pm|/.*)?
 TODO: sort out packlist vs. other check/incldue ordering, this is confusing.
 
+0.911 Sat Dec 11 16:50:41 CET 2010
+	- argl, testsuite had a duplicated test.
+	- use -Wl,--allow-multiple-definition for better portability.
+
 0.91  Fri Dec 10 22:13:43 CET 2010
 	- add testsuite (yeah, should be optional - send patches).
 	- started to maintain two demo builds: bigperl and smallperl,

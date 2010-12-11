@@ -1,4 +1,4 @@
-BEGIN { $| = 1; print "1..8\n"; }
+BEGIN { $| = 1; print "1..9\n"; }
 
 #TODO: actually ask before doing this
 
@@ -29,10 +29,10 @@ print qx<sh bin/staticperl version> =~ /staticperl version / ? "" : "not ", "ok 
 print system ("sh bin/staticperl install $DEVNULL") ? "not " : "", "ok 2\n";
 print system ("sh bin/staticperl instcpan Games::Go::SimpleBoard $DEVNULL") ? "not " : "", "ok 3\n";
 print system ("sh bin/staticperl mkapp $PFX/perl.bin -MGames::Go::SimpleBoard $DEVNULL") ? "not " : "", "ok 4\n";
-print system ("$PFX/perl.bin -e0 $DEVNULL") ? "not " : "", "ok 4\n";
-print system ("$PFX/perl.bin -MGames::Go::SimpleBoard -e0 $DEVNULL") ? "not " : "", "ok 5\n";
-print system ("sh bin/staticperl mkapp $PFX/perl.bin -MGames::Go::SimpleBoard -MPOSIX $DEVNULL") ? "not " : "", "ok 6\n";
-print system ("$PFX/perl.bin -e0 $DEVNULL") ? "not " : "", "ok 7\n";
-print system ("$PFX/perl.bin -MPOSIX -e0 $DEVNULL") ? "not " : "", "ok 8\n";
+print system ("$PFX/perl.bin -e0 $DEVNULL") ? "not " : "", "ok 5\n";
+print system ("$PFX/perl.bin -MGames::Go::SimpleBoard -e0 $DEVNULL") ? "not " : "", "ok 6\n";
+print system ("sh bin/staticperl mkapp $PFX/perl.bin -MGames::Go::SimpleBoard -MPOSIX $DEVNULL") ? "not " : "", "ok 7\n";
+print system ("$PFX/perl.bin -e0 $DEVNULL") ? "not " : "", "ok 8\n";
+print system ("$PFX/perl.bin -MPOSIX -e0 $DEVNULL") ? "not " : "", "ok 9\n";
 
 

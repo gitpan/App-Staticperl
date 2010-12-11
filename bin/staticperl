@@ -7,7 +7,6 @@ STATICPERL=~/.staticperl
 CPAN=http://mirror.netcologne.de/cpan # which mirror to use
 EMAIL="read the documentation <rtfm@example.org>"
 
-
 # perl build variables
 PERL_VERSION=5.12.2 # 5.8.9 is also a good choice
 PERL_CONFIGURE="" # additional Configure arguments
@@ -29,8 +28,8 @@ esac
 
 # -Wl,--gc-sections makes it impossible to check for undefined references
 # for some reason so we need to patch away the "-no" after Configure and before make :/
-# -z muldefs is to work around uclibc's pthread static linking bug
-PERL_LDFLAGS="-Wl,--no-gc-sections -z muldefs"
+# --allow-multiple-definition exists to work around uclibc's pthread static linking bug
+PERL_LDFLAGS="-Wl,--no-gc-sections -Wl,--allow-multiple-definition"
 PERL_LIBS="-lm -lcrypt" # perl loves to add lotsa crap itself
 
 # some configuration options for modules
@@ -71,7 +70,7 @@ export LC_ALL=C # just to be on the safe side
 
 # set version in a way that Makefile.PL can extract
 VERSION=VERSION; eval \
-$VERSION=0.91
+$VERSION=0.911
 
 BZ2=bz2
 BZIP2=bzip2
