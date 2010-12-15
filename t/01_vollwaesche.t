@@ -14,9 +14,11 @@ END {
    open my $fh, ">", "$PFX/staticperlrc"
       or die "$PFX/staticperlrc: $!";
    print $fh <<EOF;
-PERL_VERSION=5.8.9
+PERL_VERSION=5.12.2
 STATICPERL=$PFX
-PERL_OPTIMIZE="\$PERL_OPTIMIZE -O0 -g0"
+PERL_CCFLAGS=
+PERL_OPTIMIZE="-O0 -g0"
+PERL_CONFIGURE="-Ucc= -Uccflags= -Uldflags= -Ulibs="
 EOF
 }
 

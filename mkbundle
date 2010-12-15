@@ -531,7 +531,7 @@ for my $pm (@order) {
    unless ($pmbin{$pm}) { # only do this unless the file is binary
       if ($pm =~ /^auto\/POSIX\/[^\/]+\.al$/) {
          if ($src =~ /^    unimpl \"/m) {
-            print "$pm: skipping (only raises runtime error).\n"
+            print "$pm: skipping (raises runtime error only).\n"
                if $VERBOSE >= 3;
             next;
          }

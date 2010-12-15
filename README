@@ -120,7 +120,9 @@ THE STATICPERL SCRIPT
     directory. The script is fully self-contained, and can be used without
     perl (for example, in an uClibc chroot environment). In fact, it can be
     extracted from the "App::Staticperl" distribution tarball as
-    bin/staticperl, without any installation.
+    bin/staticperl, without any installation. The newest (possibly alpha)
+    version can also be downloaded from
+    <http://staticperl.schmorp.de/staticperl>.
 
     staticperl interprets the first argument as a command to execute,
     optionally followed by any parameters.
@@ -139,12 +141,17 @@ THE STATICPERL SCRIPT
 
        staticperl install
 
-    Is normally all you need: It installs the perl interpreter in
+    is normally all you need: It installs the perl interpreter in
     ~/.staticperl/perl. It downloads, configures, builds and installs the
     perl interpreter if required.
 
-    Most of the following commands simply run one or more steps of this
-    sequence.
+    Most of the following staticperl subcommands simply run one or more
+    steps of this sequence.
+
+    If it fails, then most commonly because the compiler options I selected
+    are not supported by your compiler - either edit the staticperl script
+    yourself or create ~/.staticperl shell script where your set working
+    "PERL_CCFLAGS" etc. variables.
 
     To force recompilation or reinstallation, you need to run staticperl
     distclean first.
@@ -195,10 +202,11 @@ THE STATICPERL SCRIPT
     staticperl clean
         Deletes the perl source directory (and potentially cleans up other
         intermediate files). This can be used to clean up files only needed
-        for building perl, without removing the installed perl interpreter,
-        or to force a re-build from scratch.
+        for building perl, without removing the installed perl interpreter.
 
         At the moment, it doesn't delete downloaded tarballs.
+
+        The exact semantics of this command will probably change.
 
     staticperl distclean
         This wipes your complete ~/.staticperl directory. Be careful with
@@ -639,15 +647,21 @@ THE STATICPERL SCRIPT
         ("-Duse64bitint"), or disable large files support (-Uuselargefiles),
         to reduce filesize further.
 
-    "PERL_CPPFLAGS", "PERL_OPTIMIZE", "PERL_LDFLAGS", "PERL_LIBS"
+    "PERL_CC", "PERL_CCFLAGS", "PERL_OPTIMIZE", "PERL_LDFLAGS", "PERL_LIBS"
         These flags are passed to perl's Configure script, and are generally
         optimised for small size (at the cost of performance). Since they
         also contain subtle workarounds around various build issues,
         changing these usually requires understanding their default values -
         best look at the top of the staticperl script for more info on
-        these.
+        these, and use a ~/.staticperlrc to override them.
+
+        Most of the variables override (or modify) the corresponding
+        Configure variable, except "PERL_CCFLAGS", which gets appended.
 
    Variables you probably *do not want* to override
+    "MAKE"
+        The make command to use - default is "make".
+
     "MKBUNDLE"
         Where staticperl writes the "mkbundle" command to (default:
         $STATICPERL/mkbundle).
@@ -934,7 +948,7 @@ RECIPES / SPECIFIC MODULES
            }
 
         This mostly gains space when linking staticaly, as the functions
-        will liekly not be linked in. The gain for dynamically-linked
+        will likely not be linked in. The gain for dynamically-linked
         binaries is smaller.
 
         Also, this leaves "gethostbyname" in - not only is it actually used

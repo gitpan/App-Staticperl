@@ -19,7 +19,9 @@ then
    chmod 755 bin/staticperl~
    if cmp -s bin/staticperl~ bin/staticperl; then
       rm bin/staticperl~
+      echo unchanged
    else
       mv bin/staticperl~ bin/staticperl
+      echo changed
    fi
 fi

@@ -124,10 +124,12 @@ often as necessary.
 =head1 THE F<STATICPERL> SCRIPT
 
 This module installs a script called F<staticperl> into your perl
-binary directory. The script is fully self-contained, and can be used
-without perl (for example, in an uClibc chroot environment). In fact,
-it can be extracted from the C<App::Staticperl> distribution tarball as
-F<bin/staticperl>, without any installation.
+binary directory. The script is fully self-contained, and can be
+used without perl (for example, in an uClibc chroot environment). In
+fact, it can be extracted from the C<App::Staticperl> distribution
+tarball as F<bin/staticperl>, without any installation. The
+newest (possibly alpha) version can also be downloaded from
+L<http://staticperl.schmorp.de/staticperl>.
 
 F<staticperl> interprets the first argument as a command to execute,
 optionally followed by any parameters.
@@ -147,12 +149,17 @@ The command
 
    staticperl install
 
-Is normally all you need: It installs the perl interpreter in
+is normally all you need: It installs the perl interpreter in
 F<~/.staticperl/perl>. It downloads, configures, builds and installs the
 perl interpreter if required.
 
-Most of the following commands simply run one or more steps of this
-sequence.
+Most of the following F<staticperl> subcommands simply run one or more
+steps of this sequence.
+
+If it fails, then most commonly because the compiler options I selected
+are not supported by your compiler - either edit the F<staticperl> script
+yourself or create F<~/.staticperl> shell script where your set working
+C<PERL_CCFLAGS> etc. variables.
 
 To force recompilation or reinstallation, you need to run F<staticperl
 distclean> first.
@@ -209,10 +216,11 @@ want to have built.
 
 Deletes the perl source directory (and potentially cleans up other
 intermediate files). This can be used to clean up files only needed for
-building perl, without removing the installed perl interpreter, or to
-force a re-build from scratch.
+building perl, without removing the installed perl interpreter.
 
 At the moment, it doesn't delete downloaded tarballs.
+
+The exact semantics of this command will probably change.
 
 =item F<staticperl distclean>
 
@@ -703,19 +711,27 @@ More commonly, you would either activate 64 bit integer support
 (C<-Duse64bitint>), or disable large files support (-Uuselargefiles), to
 reduce filesize further.
 
-=item C<PERL_CPPFLAGS>, C<PERL_OPTIMIZE>, C<PERL_LDFLAGS>, C<PERL_LIBS>
+=item C<PERL_CC>, C<PERL_CCFLAGS>, C<PERL_OPTIMIZE>, C<PERL_LDFLAGS>, C<PERL_LIBS>
 
 These flags are passed to perl's F<Configure> script, and are generally
 optimised for small size (at the cost of performance). Since they also
 contain subtle workarounds around various build issues, changing these
-usually requires understanding their default values - best look at the top
-of the F<staticperl> script for more info on these.
+usually requires understanding their default values - best look at
+the top of the F<staticperl> script for more info on these, and use a
+F<~/.staticperlrc> to override them.
+
+Most of the variables override (or modify) the corresponding F<Configure>
+variable, except C<PERL_CCFLAGS>, which gets appended.
 
 =back
 
 =head4 Variables you probably I<do not want> to override
 
 =over 4
+
+=item C<MAKE>
+
+The make command to use - default is C<make>.
 
 =item C<MKBUNDLE>
 
@@ -1053,7 +1069,7 @@ putting the following fragment into a C<preconfigure> hook:
    }
 
 This mostly gains space when linking staticaly, as the functions will
-liekly not be linked in. The gain for dynamically-linked binaries is
+likely not be linked in. The gain for dynamically-linked binaries is
 smaller.
 
 Also, this leaves C<gethostbyname> in - not only is it actually used

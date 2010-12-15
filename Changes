@@ -3,7 +3,19 @@ Revision history for Perl extension App::Staticperl
 TODO: noautoload
 TODO: --ignore-env
 TODO: / at glob end == (.pm|/.*)?
-TODO: sort out packlist vs. other check/incldue ordering, this is confusing.
+TODO: sort out packlist vs. other check/include ordering, this is confusing.
+
+0.912 Wed Dec 15 01:14:26 CET 2010
+	- print a longer and hopefully useful message when Configure fails.
+	- remove PERL_CPPFLAGS, replace with PERL_CCFLAGS, which get appended
+          tot he ccflags, instead of overriding them.
+        - introduce PERL_CC.
+	- work around *bsd stupidity again, where even root can't replace
+          files with mv :/.
+        - stop command processing when a command fails (e.g. staticperl mkperl
+          will stop if the install step fails).
+        - let perl do most configuration when running make test, to increase
+          chances of success.
 
 0.911 Sat Dec 11 16:50:41 CET 2010
 	- argl, testsuite had a duplicated test.

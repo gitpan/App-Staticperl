@@ -8,9 +8,11 @@ CPAN=http://mirror.netcologne.de/cpan # which mirror to use
 EMAIL="read the documentation <rtfm@example.org>"
 
 # perl build variables
+MAKE=make
 PERL_VERSION=5.12.2 # 5.8.9 is also a good choice
+PERL_CC=cc
 PERL_CONFIGURE="" # additional Configure arguments
-PERL_CPPFLAGS="-DPERL_DISABLE_PMC -DPERL_ARENA_SIZE=65536 -D_GNU_SOURCE -DNDEBUG -USITELIB_EXP -USITEARCHEXP -UARCHLIB_EXP"
+PERL_CCFLAGS="-DPERL_DISABLE_PMC -DPERL_ARENA_SIZE=65536 -D_GNU_SOURCE -DNDEBUG -USITELIB_EXP -USITEARCHEXP -UARCHLIB_EXP"
 PERL_OPTIMIZE="-Os -ffunction-sections -fdata-sections -finline-limit=8 -ffast-math"
 
 ARCH="$(uname -m)"
@@ -70,7 +72,7 @@ export LC_ALL=C # just to be on the safe side
 
 # set version in a way that Makefile.PL can extract
 VERSION=VERSION; eval \
-$VERSION=0.911
+$VERSION=0.912
 
 BZ2=bz2
 BZIP2=bzip2
@@ -148,6 +150,7 @@ EOF
          wget -O perl-$PERL_VERSION.tar.$BZ2~ "$URL" \
             || curl >perl-$PERL_VERSION.tar.$BZ2~ "$URL" \
             || fatal "$URL: unable to download"
+         rm -f perl-$PERL_VERSION.tar.$BZ2
          mv perl-$PERL_VERSION.tar.$BZ2~ perl-$PERL_VERSION.tar.$BZ2
       fi
 
@@ -156,6 +159,7 @@ unpacking perl
 EOF
 
       mkdir -p unpack
+      rm -rf unpack/perl-$PERL_VERSION
       $BZIP2 -d <perl-$PERL_VERSION.tar.bz2 | tar xfC - unpack \
          || fatal "perl-$PERL_VERSION.tar.bz2: error during unpacking"
       chmod -R u+w unpack/perl-$PERL_VERSION
@@ -167,7 +171,34 @@ EOF
 # similar to GNU-sed -i or perl -pi
 sedreplace() {
    sed -e "$1" <"$2" > "$2~" || fatal "error while running sed"
+   rm -f "$2"
    mv "$2~" "$2"
+}
+
+configure_failure() {
+   cat <<EOF
+
+
+*** 
+*** Configure failed - see above for the exact error message(s).
+*** 
+*** Most commonly, this is because the default PERL_CCFLAGS or PERL_OPTIMIZE
+*** flags are not supported by your compiler. Less often, this is because
+*** PERL_LIBS either contains a library not available on your system (such as
+*** -lcrypt), or because it lacks a required library (e.g. -lsocket or -lnsl).
+*** 
+*** You can provide your own flags by creating a ~/.staticperlrc file with
+*** variable assignments. For example (these are the actual values used):
+***
+
+PERL_CC="$PERL_CC"
+PERL_CCFLAGS="$PERL_CCFLAGS"
+PERL_OPTIMIZE="$PERL_OPTIMIZE"
+PERL_LDFLAGS="$PERL_LDFLAGS"
+PERL_LIBS="$PERL_LIBS"
+
+EOF
+   exit 1
 }
 
 configure() {
@@ -183,7 +214,7 @@ EOF
 
    rm -f "$PERL_PREFIX/staticstamp.install"
 
-   make distclean >/dev/null 2>&1
+   "$MAKE" distclean >/dev/null 2>&1
 
    # I hate them
    grep -q -- -fstack-protector Configure && \
@@ -199,11 +230,10 @@ EOF
                 -Uusethreads \
                 -Uuseithreads \
                 -Uusemultiplicity \
-                -Duseperlio \
                 -Uusesfio \
                 -Uuseshrplib \
-                -Dcppflags="$PERL_CPPFLAGS" \
-                -Dccflags="-g2 -fno-strict-aliasing" \
+                -A ccflags=" $PERL_CCFLAGS" \
+                -Dcc="$PERL_CC" \
                 -Doptimize="$PERL_OPTIMIZE" \
                 -Dldflags="$PERL_LDFLAGS" \
                 -Dlibs="$PERL_LIBS" \
@@ -224,7 +254,8 @@ EOF
                 -Dcf_email="$EMAIL" \
                 -Dcf_by="$EMAIL" \
                 $PERL_CONFIGURE \
-                -dE || fatal "Configure failed"
+                -Duseperlio \
+                -dE || configure_failure
 
    sedreplace '
       s/-Wl,--no-gc-sections/-Wl,--gc-sections/g
@@ -249,7 +280,7 @@ EOF
 
    rm -f "$PERL_PREFIX/staticstamp.install"
 
-   make || fatal "make: error while building perl"
+   "$MAKE" || fatal "make: error while building perl"
 
    postbuild || fatal "postbuild hook failed"
 }
@@ -269,26 +300,28 @@ EOF
       ln -sf "$PERL_PREFIX" "$STATICPERL/perl" # might get overwritten
       rm -rf "$PERL_PREFIX"                    # by this rm -rf
 
-      make install || fatal "make install: error while installing"
+      "$MAKE" install || fatal "make install: error while installing"
 
       rcd "$PERL_PREFIX"
 
       # create a "make install" replacement for CPAN
       cat >"$PERL_PREFIX"/bin/cpan-make-install <<EOF
-make || exit
+"$MAKE" || exit
 
 if find blib/arch/auto -type f | grep -q -v .exists; then
    echo Probably an XS module, rebuilding perl
-   if make perl; then
-      mv perl "$PERL_PREFIX"/bin/perl
-      make -f Makefile.aperl map_clean
+   if "$MAKE" perl; then
+      mv perl "$PERL_PREFIX"/bin/perl~ \
+         && rm -f "$PERL_PREFIX"/bin/perl \
+         && mv "$PERL_PREFIX"/bin/perl~ "$PERL_PREFIX"/bin/perl
+      "$MAKE" -f Makefile.aperl map_clean
    else
-      make -f Makefile.aperl map_clean
+      "$MAKE" -f Makefile.aperl map_clean
       exit 1
    fi
 fi
 
-make install UNINST=1
+"$MAKE" install UNINST=1
 EOF
       chmod 755 "$PERL_PREFIX"/bin/cpan-make-install
 
@@ -358,12 +391,12 @@ EOF
       echo $mod
       (
          rcd $mod
-         make -f Makefile.aperl map_clean >/dev/null 2>&1
-         make distclean >/dev/null 2>&1
+         "$MAKE" -f Makefile.aperl map_clean >/dev/null 2>&1
+         "$MAKE" distclean >/dev/null 2>&1
          "$PERL_PREFIX"/bin/perl Makefile.PL || fatal "$mod: error running Makefile.PL"
-         make || fatal "$mod: error building module"
+         "$MAKE" || fatal "$mod: error building module"
          "$PERL_PREFIX"/bin/cpan-make-install || fatal "$mod: error installing module"
-         make distclean >/dev/null 2>&1
+         "$MAKE" distclean >/dev/null 2>&1
          exit 0
       ) || exit $?
    done
@@ -374,17 +407,19 @@ EOF
 
 podusage() {
    echo
+
    if [ -e "$PERL_PREFIX/bin/perl" ]; then
       "$PERL_PREFIX/bin/perl" -MPod::Usage -e \
          'pod2usage -input => *STDIN, -output => *STDOUT, -verbose => '$1', -exitval => 0, -noperldoc => 1' <"$0" \
          2>/dev/null && exit
    fi
+
    # try whatever perl we can find
    perl -MPod::Usage -e \
       'pod2usage -input => *STDIN, -output => *STDOUT, -verbose => '$1', -exitval => 0, -noperldoc => 1' <"$0" \
       2>/dev/null && exit
 
-   fatal "displaying documentation requires a working perl - try '$0 install' first"
+   fatal "displaying documentation requires a working perl - try '$0 install' to build one in a safe location"
 }
 
 usage() {
@@ -420,33 +455,33 @@ if [ $# -gt 0 ]; then
             echo "staticperl version $VERSION"
             ;;
          fetch | configure | build | install | clean | distclean)
-            ( "$command" )
+            ( "$command" ) || exit
             ;;
          instsrc )
-            ( instsrc "$@" )
+            ( instsrc "$@" ) || exit
             exit
             ;;
          instcpan )
-            ( instcpan "$@" )
+            ( instcpan "$@" ) || exit
             exit
             ;;
          cpan )
-            ( install )
+            ( install ) || exit
             "$PERL_PREFIX/bin/cpan" "$@"
             exit
             ;;
          mkbundle )
-            ( install )
+            ( install ) || exit
             bundle "$@"
             exit
             ;;
          mkperl )
-            ( install )
+            ( install ) || exit
             bundle --perl "$@"
             exit
             ;;
          mkapp )
-            ( install )
+            ( install ) || exit
             bundle --app "$@"
             exit
             ;;
