@@ -12,7 +12,7 @@ MAKE=make
 PERL_VERSION=5.12.2 # 5.8.9 is also a good choice
 PERL_CC=cc
 PERL_CONFIGURE="" # additional Configure arguments
-PERL_CCFLAGS="-DPERL_DISABLE_PMC -DPERL_ARENA_SIZE=65536 -D_GNU_SOURCE -DNDEBUG -USITELIB_EXP -USITEARCHEXP -UARCHLIB_EXP"
+PERL_CCFLAGS="-DPERL_DISABLE_PMC -DPERL_ARENA_SIZE=65536 -D_GNU_SOURCE -DNDEBUG"
 PERL_OPTIMIZE="-Os -ffunction-sections -fdata-sections -finline-limit=8 -ffast-math"
 
 ARCH="$(uname -m)"
@@ -35,9 +35,10 @@ PERL_LDFLAGS="-Wl,--no-gc-sections -Wl,--allow-multiple-definition"
 PERL_LIBS="-lm -lcrypt" # perl loves to add lotsa crap itself
 
 # some configuration options for modules
-export PERL_MM_USE_DEFAULT=1
-#export CORO_INTERFACE=p # needed without nptl on x86, due to bugs in linuxthreads - very slow
-export EV_EXTRA_DEFS='-DEV_FEATURES=4+8+16+64 -DEV_USE_SELECT=0 -DEV_USE_POLL=1 -DEV_USE_EPOLL=1 -DEV_NO_LOOPS -DEV_COMPAT3=0'
+PERL_MM_USE_DEFAULT=1
+#CORO_INTERFACE=p # needed without nptl on x86, due to bugs in linuxthreads - very slow
+EV_EXTRA_DEFS='-DEV_FEATURES=4+8+16+64 -DEV_USE_SELECT=0 -DEV_USE_POLL=1 -DEV_USE_EPOLL=1 -DEV_NO_LOOPS -DEV_COMPAT3=0'
+export PERL_MM_USE_DEFAULT CORO_INTERFACE EV_EXTRA_DEFS
 
 # which extra modules to install by default from CPAN that are
 # required by mkbundle
@@ -68,11 +69,11 @@ MKBUNDLE="${MKBUNDLE:=$STATICPERL/mkbundle}"
 PERL_PREFIX="${PERL_PREFIX:=$STATICPERL/perl}" # where the perl gets installed
 
 unset PERL5OPT PERL5LIB PERLLIB PERL_UNICODE PERLIO_DEBUG 
-export LC_ALL=C # just to be on the safe side
+LC_ALL=C; export LC_ALL # just to be on the safe side
 
 # set version in a way that Makefile.PL can extract
 VERSION=VERSION; eval \
-$VERSION=0.912
+$VERSION=0.92
 
 BZ2=bz2
 BZIP2=bzip2
@@ -126,6 +127,12 @@ EOF
 
 clean() {
    rm -rf "$STATICPERL/src/perl-$PERL_VERSION"
+}
+
+realclean() {
+   rm -f "$PERL_PREFIX/staticstamp.postinstall"
+   rm -f "$PERL_PREFIX/staticstamp.install"
+   rm -f "$STATICPERL/src/perl-"*"/staticstamp.configure"
 }
 
 fetch() {
@@ -216,7 +223,9 @@ EOF
 
    "$MAKE" distclean >/dev/null 2>&1
 
-   # I hate them
+   sedreplace '/^#define SITELIB/d' config_h.SH
+
+   # I hate them for this
    grep -q -- -fstack-protector Configure && \
       sedreplace 's/-fstack-protector/-fno-stack-protector/g' Configure
 
@@ -244,7 +253,6 @@ EOF
                 -Uusevendorprefix \
                 -Dsitelib="$PERL_PREFIX/lib" \
                 -Dsitearch="$PERL_PREFIX/lib" \
-                -Usitelibexp \
                 -Uman1dir \
                 -Uman3dir \
                 -Usiteman1dir \
@@ -454,7 +462,7 @@ if [ $# -gt 0 ]; then
          version )
             echo "staticperl version $VERSION"
             ;;
-         fetch | configure | build | install | clean | distclean)
+         fetch | configure | build | install | clean | realclean | distclean)
             ( "$command" ) || exit
             ;;
          instsrc )

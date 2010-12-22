@@ -1,9 +1,17 @@
 Revision history for Perl extension App::Staticperl
 
-TODO: noautoload
 TODO: --ignore-env
 TODO: / at glob end == (.pm|/.*)?
-TODO: sort out packlist vs. other check/include ordering, this is confusing.
+
+0.92  Wed Dec 22 02:09:19 CET 2010
+	- major rework of the PHASE 2 documentation section, hopefully
+          it's now more clear, more useful, more sexy.
+        - renamed --usepacklist to --usepacklists (--usepacklist still
+          supported as abbreviation).
+	- "properly" get rid of SITELIB paths, avoid using -U compiler flags
+          (which didn't even do anything...).
+        - avoid export var=value syntax for non-unix shells (solaris...).
+        - better output in the error case from the testsuite.
 
 0.912 Wed Dec 15 01:14:26 CET 2010
 	- print a longer and hopefully useful message when Configure fails.

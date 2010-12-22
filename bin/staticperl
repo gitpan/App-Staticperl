@@ -12,7 +12,7 @@ MAKE=make
 PERL_VERSION=5.12.2 # 5.8.9 is also a good choice
 PERL_CC=cc
 PERL_CONFIGURE="" # additional Configure arguments
-PERL_CCFLAGS="-DPERL_DISABLE_PMC -DPERL_ARENA_SIZE=65536 -D_GNU_SOURCE -DNDEBUG -USITELIB_EXP -USITEARCHEXP -UARCHLIB_EXP"
+PERL_CCFLAGS="-DPERL_DISABLE_PMC -DPERL_ARENA_SIZE=65536 -D_GNU_SOURCE -DNDEBUG"
 PERL_OPTIMIZE="-Os -ffunction-sections -fdata-sections -finline-limit=8 -ffast-math"
 
 ARCH="$(uname -m)"
@@ -35,9 +35,10 @@ PERL_LDFLAGS="-Wl,--no-gc-sections -Wl,--allow-multiple-definition"
 PERL_LIBS="-lm -lcrypt" # perl loves to add lotsa crap itself
 
 # some configuration options for modules
-export PERL_MM_USE_DEFAULT=1
-#export CORO_INTERFACE=p # needed without nptl on x86, due to bugs in linuxthreads - very slow
-export EV_EXTRA_DEFS='-DEV_FEATURES=4+8+16+64 -DEV_USE_SELECT=0 -DEV_USE_POLL=1 -DEV_USE_EPOLL=1 -DEV_NO_LOOPS -DEV_COMPAT3=0'
+PERL_MM_USE_DEFAULT=1
+#CORO_INTERFACE=p # needed without nptl on x86, due to bugs in linuxthreads - very slow
+EV_EXTRA_DEFS='-DEV_FEATURES=4+8+16+64 -DEV_USE_SELECT=0 -DEV_USE_POLL=1 -DEV_USE_EPOLL=1 -DEV_NO_LOOPS -DEV_COMPAT3=0'
+export PERL_MM_USE_DEFAULT CORO_INTERFACE EV_EXTRA_DEFS
 
 # which extra modules to install by default from CPAN that are
 # required by mkbundle
@@ -68,11 +69,11 @@ MKBUNDLE="${MKBUNDLE:=$STATICPERL/mkbundle}"
 PERL_PREFIX="${PERL_PREFIX:=$STATICPERL/perl}" # where the perl gets installed
 
 unset PERL5OPT PERL5LIB PERLLIB PERL_UNICODE PERLIO_DEBUG 
-export LC_ALL=C # just to be on the safe side
+LC_ALL=C; export LC_ALL # just to be on the safe side
 
 # set version in a way that Makefile.PL can extract
 VERSION=VERSION; eval \
-$VERSION=0.912
+$VERSION=0.92
 
 BZ2=bz2
 BZIP2=bzip2
@@ -126,6 +127,12 @@ EOF
 
 clean() {
    rm -rf "$STATICPERL/src/perl-$PERL_VERSION"
+}
+
+realclean() {
+   rm -f "$PERL_PREFIX/staticstamp.postinstall"
+   rm -f "$PERL_PREFIX/staticstamp.install"
+   rm -f "$STATICPERL/src/perl-"*"/staticstamp.configure"
 }
 
 fetch() {
@@ -216,7 +223,9 @@ EOF
 
    "$MAKE" distclean >/dev/null 2>&1
 
-   # I hate them
+   sedreplace '/^#define SITELIB/d' config_h.SH
+
+   # I hate them for this
    grep -q -- -fstack-protector Configure && \
       sedreplace 's/-fstack-protector/-fno-stack-protector/g' Configure
 
@@ -244,7 +253,6 @@ EOF
                 -Uusevendorprefix \
                 -Dsitelib="$PERL_PREFIX/lib" \
                 -Dsitearch="$PERL_PREFIX/lib" \
-                -Usitelibexp \
                 -Uman1dir \
                 -Uman3dir \
                 -Usiteman1dir \
@@ -666,8 +674,6 @@ sub get_dirtree {
          if (-d "$path/.") {
             $scan->($path);
          } else {
-            next unless /\.(?:pm|pl)$/;
-
             $path = substr $path, $skip;
             push @tree, $path
                unless exists $INCSKIP{$path};
@@ -730,7 +736,7 @@ sub cmd_incglob {
       my ($dir, $files) = @$_;
 
       $pm{$_} = "$dir/$_"
-         for grep /$pattern/, @$files;
+         for grep /$pattern/ && /\.(pl|pm)$/, @$files;
    }
 }
 
@@ -761,24 +767,24 @@ use Getopt::Long;
 
 sub parse_argv {
    GetOptions
-      "strip=s"      => \$STRIP,
-      "cache=s"      => \$CACHE, # internal option
-      "verbose|v"    => sub { ++$VERBOSE },
-      "quiet|q"      => sub { --$VERBOSE },
-      "perl"         => \$PERL,
-      "app=s"        => \$APP,
-      "eval|e=s"     => sub { trace_eval    $_[1] },
-      "use|M=s"      => sub { trace_module  $_[1] },
-      "boot=s"       => sub { cmd_boot      $_[1] },
-      "add=s"        => sub { cmd_add       $_[1], 0 },
-      "addbin=s"     => sub { cmd_add       $_[1], 1 },
-      "incglob=s"    => sub { cmd_incglob   $_[1] },
-      "include|i=s"  => sub { cmd_include   $_[1], 1 },
-      "exclude|x=s"  => sub { cmd_include   $_[1], 0 },
-      "static!"      => \$STATIC,
-      "usepacklist!" => \$PACKLIST,
-      "staticlib=s"  => sub { cmd_staticlib $_[1] },
-      "<>"           => sub { cmd_file      $_[0] },
+      "strip=s"       => \$STRIP,
+      "cache=s"       => \$CACHE, # internal option
+      "verbose|v"     => sub { ++$VERBOSE },
+      "quiet|q"       => sub { --$VERBOSE },
+      "perl"          => \$PERL,
+      "app=s"         => \$APP,
+      "eval|e=s"      => sub { trace_eval    $_[1] },
+      "use|M=s"       => sub { trace_module  $_[1] },
+      "boot=s"        => sub { cmd_boot      $_[1] },
+      "add=s"         => sub { cmd_add       $_[1], 0 },
+      "addbin=s"      => sub { cmd_add       $_[1], 1 },
+      "incglob=s"     => sub { cmd_incglob   $_[1] },
+      "include|i=s"   => sub { cmd_include   $_[1], 1 },
+      "exclude|x=s"   => sub { cmd_include   $_[1], 0 },
+      "static!"       => \$STATIC,
+      "usepacklists!" => \$PACKLIST,
+      "staticlib=s"   => sub { cmd_staticlib $_[1] },
+      "<>"            => sub { cmd_file      $_[0] },
       or exit 1;
 }
 
@@ -793,7 +799,7 @@ die "cannot specify both --app and --perl\n"
 trace_module "PerlIO::scalar";
 
 #############################################################################
-# include/exclude apply
+# apply include/exclude
 
 {
    my %pmi;
@@ -813,7 +819,7 @@ trace_module "PerlIO::scalar";
          # exclude
          delete @pm{@match};
 
-         print "applying exclude $glob - excluded ", (scalar @match), " files.\n"
+         print "applying exclude $glob - removed ", (scalar @match), " files.\n"
             if $VERBOSE >= 5;
       }
    }
@@ -823,7 +829,7 @@ trace_module "PerlIO::scalar";
 }
 
 #############################################################################
-# scan for AutoLoader and static archives
+# scan for AutoLoader, static archives and other dependencies
 
 sub scan_al {
    my ($auto, $autodir) = @_;
@@ -903,6 +909,7 @@ for my $pm (keys %pm) {
 
             while (<$fh>) {
                chomp;
+               s/ .*$//; # newer-style .packlists might contain key=value pairs
 
                # only include certain files (.al, .ix, .pm, .pl)
                if (/\.(pm|pl|al|ix)$/) {
@@ -1552,7 +1559,7 @@ if [ $# -gt 0 ]; then
          version )
             echo "staticperl version $VERSION"
             ;;
-         fetch | configure | build | install | clean | distclean)
+         fetch | configure | build | install | clean | realclean | distclean)
             ( "$command" ) || exit
             ;;
          instsrc )
@@ -1882,20 +1889,54 @@ application:
    # run it
    ./app
 
+Here are the three phase 2 commands:
+
+=over 4
+
+=item F<staticperl mkbundle> args...
+
+The "default" bundle command - it interprets the given bundle options and
+writes out F<bundle.h>, F<bundle.c>, F<bundle.ccopts> and F<bundle.ldopts>
+files, useful for embedding.
+
+=item F<staticperl mkperl> args...
+
+Creates a bundle just like F<staticperl mkbundle> (in fact, it's the same
+as invoking F<staticperl mkbundle --perl> args...), but then compiles and
+links a new perl interpreter that embeds the created bundle, then deletes
+all intermediate files.
+
+=item F<staticperl mkapp> filename args...
+
+Does the same as F<staticperl mkbundle> (in fact, it's the same as
+invoking F<staticperl mkbundle --app> filename args...), but then compiles
+and links a new standalone application that simply initialises the perl
+interpreter.
+
+The difference to F<staticperl mkperl> is that the standalone application
+does not act like a perl interpreter would - in fact, by default it would
+just do nothing and exit immediately, so you should specify some code to
+be executed via the F<--boot> option.
+
+=back
+
 =head3 OPTION PROCESSING
 
 All options can be given as arguments on the command line (typically
 using long (e.g. C<--verbose>) or short option (e.g. C<-v>) style). Since
-specifying a lot of modules can make the command line very cumbersome,
-you can put all long options into a "bundle specification file" (with or
-without C<--> prefix) and specify this bundle file instead.
+specifying a lot of options can make the command line very long and
+unwieldy, you can put all long options into a "bundle specification file"
+(one option per line, with or without C<--> prefix) and specify this
+bundle file instead.
 
-For example, the command given earlier could also look like this:
+For example, the command given earlier to link a new F<perl> could also
+look like this:
 
    staticperl mkperl httpd.bundle
 
-And all options could be in F<httpd.bundle>:
-   
+With all options stored in the F<httpd.bundle> file (one option per line,
+everything after the option is an argument):
+
    use "Config_heavy.pl"
    use AnyEvent::Impl::Perl
    use AnyEvent::HTTPD
@@ -1903,60 +1944,288 @@ And all options could be in F<httpd.bundle>:
    add eg/httpd httpd.pm
 
 All options that specify modules or files to be added are processed in the
-order given on the command line (that affects the C<--use> and C<--eval>
-options at the moment).
+order given on the command line.
 
-=head3 PACKAGE SELECTION WORKFLOW
+=head3 BUNDLE CREATION WORKFLOW / STATICPELR MKBUNDLE OPTIONS
 
-F<staticperl mkbundle> has a number of options to control package
-selection. This section describes how they interact with each other. Also,
-since I am still a newbie w.r.t. these issues, maybe future versions of
-F<staticperl> will change this, so watch out :)
-
-The idiom "in order" means "in order that they are specified on the
-commandline". If you use a bundle specification file, then the options
-will be processed as if they were given in place of the bundle file name.
+F<staticperl mkbundle> works by first assembling a list of candidate
+files and modules to include, then filtering them by include/exclude
+patterns. The remaining modules (together with their direct dependencies,
+such as link libraries and L<AutoLoader> files) are then converted into
+bundle files suitable for embedding. F<staticperl mkbundle> can then
+optionally build a new perl interpreter or a standalone application.
 
 =over 4
 
-=item 1. apply all C<--use>, C<--eval>, C<--add>, C<--addbin> and
-C<--incglob> options, in order.
+=item Step 0: Generic argument processing.
 
-In addition, C<--use> and C<--eval> dependencies will be added when the
-options are processed.
-
-=item 2. apply all C<--include> and C<--exclude> options, in order.
-
-All this step does is potentially reduce the number of files already
-selected or found in phase 1.
-
-=item 3. find all modules (== F<.pm> files), gather their static archives
-(F<.a>) and AutoLoader splitfiles (F<.ix> and F<.al> files), find any
-extra libraries they need for linking (F<extralibs.ld>) and optionally
-evaluate any F<.packlist> files.
-
-This step is required to link against XS extensions and also adds files
-required for L<AutoLoader> to do it's job.
-
-=back
-
-After this, all the files selected for bundling will be read and processed
-(stripped), the bundle files will be written, and optionally a new F<perl>
-or application binary will be linked.
-
-=head3 MKBUNDLE OPTIONS
+The following options influence F<staticperl mkbundle> itself.
 
 =over 4
 
-=item --verbose | -v
+=item C<--verbose> | C<-v>
 
 Increases the verbosity level by one (the default is C<1>).
 
-=item --quiet | -q
+=item C<--quiet> | C<-q>
 
 Decreases the verbosity level by one.
 
-=item --strip none|pod|ppi
+=item any other argument
+
+Any other argument is interpreted as a bundle specification file, which
+supports all options (without extra quoting), one option per line, in the
+format C<option> or C<option argument>. They will effectively be expanded
+and processed as if they were directly written on the command line, in
+place of the file name.
+
+=back
+
+=item Step 1: gather candidate files and modules
+
+In this step, modules, perl libraries (F<.pl> files) and other files are
+selected for inclusion in the bundle. The relevant options are executed
+in order (this makes a difference mostly for C<--eval>, which can rely on
+earlier C<--use> options to have been executed).
+
+=over 4
+
+=item C<--use> F<module> | C<-M>F<module>
+
+Include the named module and trace direct dependencies. This is done by
+C<require>'ing the module in a subprocess and tracing which other modules
+and files it actually loads.
+
+Example: include AnyEvent and AnyEvent::Impl::Perl.
+
+   staticperl mkbundle --use AnyEvent --use AnyEvent::Impl::Perl
+
+Sometimes you want to load old-style "perl libraries" (F<.pl> files),
+or maybe other weirdly named files. To do that, you need to quote
+the name in single or double quotes (this is because F<staticperl>
+I<literally> just adds the string after the C<require> - which acts
+different when confronted with quoted vs. unquoted strings). When given on
+the command line, you probably need to quote once more to avoid your shell
+interpreting it. Common cases that need this are F<Config_heavy.pl> and
+F<utf8_heavy.pl>.
+
+Example: include the required files for F<perl -V> to work in all its
+glory (F<Config.pm> is included automatically by this).
+
+   # bourne shell
+   staticperl mkbundle --use '"Config_heavy.pl"'
+
+   # bundle specification file
+   use "Config_heavy.pl"
+
+The C<-M>module syntax is included as a convenience that might be easier
+to remember than C<--use> - it's the same switch as perl itself uses
+to load modules. Or maybe it confuses people. Time will tell. Or maybe
+not. Sigh.
+
+=item C<--eval> "perl code" | C<-e> "perl code"
+
+Sometimes it is easier (or necessary) to specify dependencies using perl
+code, or maybe one of the modules you use need a special use statement. In
+that case, you can use C<--eval> to execute some perl snippet or set some
+variables or whatever you need. All files C<require>'d or C<use>'d while
+executing the snippet are included in the final bundle.
+
+Keep in mind that F<mkbundle> will only C<require> the modules named
+by the C<--use> option, so do not expect the symbols from modules you
+C<--use>'d earlier on the command line to be available.
+
+Example: force L<AnyEvent> to detect a backend and therefore include it
+in the final bundle.
+
+   staticperl mkbundle --eval 'use AnyEvent; AnyEvent::detect'
+
+   # or like this
+   staticperl mkbundle -MAnyEvent --eval 'AnyEvent::detect'
+
+Example: use a separate "bootstrap" script that C<use>'s lots of modules
+and also include this in the final bundle, to be executed automatically
+when the interpreter is initialised.
+
+   staticperl mkbundle --eval 'do "bootstrap"' --boot bootstrap
+
+=item C<--boot> F<filename>
+
+Include the given file in the bundle and arrange for it to be
+executed (using C<require>) before the main program when the new perl
+is initialised. This can be used to modify C<@INC> or do similar
+modifications before the perl interpreter executes scripts given on the
+command line (or via C<-e>). This works even in an embedded interpreter -
+the file will be executed during interpreter initialisation in that case.
+
+=item C<--incglob> pattern
+
+This goes through all standard library directories and tries to match any
+F<.pm> and F<.pl> files against the extended glob pattern (see below). If
+a file matches, it is added. The pattern is matched against the full path
+of the file (sans the library directory prefix), e.g. F<Sys/Syslog.pm>.
+
+This is very useful to include "everything":
+
+   --incglob '*'
+
+It is also useful for including perl libraries, or trees of those, such as
+the unicode database files needed by some perl built-ins, the regex engine
+and other modules.
+
+   --incglob '/unicore/**.pl'
+
+=item C<--add> F<file> | C<--add> "F<file> alias"
+
+Adds the given (perl) file into the bundle (and optionally call it
+"alias"). The F<file> is either an absolute path or a path relative to
+the current directory. If an alias is specified, then this is the name it
+will use for C<@INC> searches, otherwise the F<file> will be used as the
+internal name.
+
+This switch is used to include extra files into the bundle.
+
+Example: embed the file F<httpd> in the current directory as F<httpd.pm>
+when creating the bundle.
+
+   staticperl mkperl --add "httpd httpd.pm"
+
+Example: add local files as extra modules in the bundle.
+
+   # specification file
+   add file1 myfiles/file1.pm
+   add file2 myfiles/file2.pm
+   add file3 myfiles/file3.pl
+
+   # then later, in perl, use
+   use myfiles::file1;
+   require myfiles::file2;
+   my $res = do "myfiles/file3.pl";
+
+=item C<--binadd> F<file> | C<--add> "F<file> alias"
+
+Just like C<--add>, except that it treats the file as binary and adds it
+without any postprocessing (perl files might get stripped to reduce their
+size).
+
+You should probably add a C</> prefix to avoid clashing with embedded perl
+files (whose paths do not start with C</>), and/or use a special directory
+prefix, such as C</res/name>.
+
+You can later get a copy of these files by calling C<staticperl::find
+"alias">.
+
+An alternative way to embed binary files is to convert them to perl and
+use C<do> to get the contents - this method is a bit cumbersome, but works
+both inside and outside of a staticperl bundle:
+
+   # a "binary" file, call it "bindata.pl"
+   <<'SOME_MARKER'
+   binary data NOT containing SOME_MARKER
+   SOME_MARKER
+
+   # load the binary
+   chomp (my $data = do "bindata.pl");
+
+=back
+
+=item Step 2: filter all files using C<--include> and C<--exclude> options.
+
+After all candidate files and modules are added, they are I<filtered>
+by a combination of C<--include> and C<--exclude> patterns (there is an
+implicit C<--include *> at the end, so if no filters are specified, all
+files are included).
+
+All that this step does is potentially reduce the number of files that are
+to be included - no new files are added during this step.
+
+=over 4
+
+=item C<--include> pattern | C<-i> pattern | C<--exclude> pattern | C<-x> pattern
+
+These specify an include or exclude pattern to be applied to the candidate
+file list. An include makes sure that the given files will be part of the
+resulting file set, an exclude will exclude remaining files. The patterns
+are "extended glob patterns" (see below).
+
+The patterns are applied "in order" - files included via earlier
+C<--include> specifications cannot be removed by any following
+C<--exclude>, and likewise, and file excluded by an earlier C<--exclude>
+cannot be added by any following C<--include>.
+
+For example, to include everything except C<Devel> modules, but still
+include F<Devel::PPPort>, you could use this:
+
+   --incglob '*' -i '/Devel/PPPort.pm' -x '/Devel/**'
+
+=back
+
+=item Step 3: add any extra or "hidden" dependencies.
+
+F<staticperl> currently knows about three extra types of depdendencies
+that are added automatically. Only one (F<.packlist> files) is currently
+optional and can be influenced, the others are always included:
+
+=over 4
+
+=item C<--usepacklists>
+
+Read F<.packlist> files for each distribution that happens to match a
+module name you specified. Sounds weird, and it is, so expect semantics to
+change somehow in the future.
+
+The idea is that most CPAN distributions have a F<.pm> file that matches
+the name of the distribution (which is rather reasonable after all).
+
+If this switch is enabled, then if any of the F<.pm> files that have been
+selected match an install distribution, then all F<.pm>, F<.pl>, F<.al>
+and F<.ix> files installed by this distribution are also included.
+
+For example, using this switch, when the L<URI> module is specified, then
+all L<URI> submodules that have been installed via the CPAN distribution
+are included as well, so you don't have to manually specify them.
+
+=item L<AutoLoader> splitfiles
+
+Some modules use L<AutoLoader> - less commonly (hopefully) used functions
+are split into separate F<.al> files, and an index (F<.ix>) file contains
+the prototypes.
+
+Both F<.ix> and F<.al> files will be detected automatically and added to
+the bundle.
+
+=item link libraries (F<.a> files)
+
+Modules using XS (or any other non-perl language extension compiled at
+installation time) will have a static archive (typically F<.a>). These
+will automatically be added to the linker options in F<bundle.ldopts>.
+
+Should F<staticperl> find a dynamic link library (typically F<.so>) it
+will warn about it - obviously this shouldn't happen unless you use
+F<staticperl> on the wrong perl, or one (probably wrongly) configured to
+use dynamic loading.
+
+=item extra libraries (F<extralibs.ld>)
+
+Some modules need linking against external libraries - these are found in
+F<extralibs.ld> and added to F<bundle.ldopts>.
+
+=back
+
+=item Step 4: write bundle files and optionally link a program
+
+At this point, the select files will be read, processed (stripped) and
+finally the bundle files get written to disk, and F<staticperl mkbundle>
+is normally finished. Optionally, it can go a step further and either link
+a new F<perl> binary with all selected modules and files inside, or build
+a standalone application.
+
+Both the contents of the bundle files and any extra linking is controlled
+by these options:
+
+=over 4
+
+=item C<--strip> C<none>|C<pod>|C<ppi>
 
 Specify the stripping method applied to reduce the file of the perl
 sources included.
@@ -1977,195 +2246,65 @@ or in the unlikely case where C<pod> is too slow, or some module gets
 mistreated, you can specify C<none> to not mangle included perl sources in
 any way.
 
-=item --perl
+=item C<--perl>
 
 After writing out the bundle files, try to link a new perl interpreter. It
 will be called F<perl> and will be left in the current working
 directory. The bundle files will be removed.
 
 This switch is automatically used when F<staticperl> is invoked with the
-C<mkperl> command (instead of C<mkbundle>):
+C<mkperl> command instead of C<mkbundle>.
 
-   # build a new ./perl with only common::sense in it - very small :)
+Example: build a new F<./perl> binary with only L<common::sense> inside -
+it will be even smaller than the standard perl interpreter as none of the
+modules of the base distribution (such as L<Fcntl>) will be included.
+
    staticperl mkperl -Mcommon::sense
 
-=item --app name
+=item C<--app> F<name>
 
 After writing out the bundle files, try to link a new standalone
 program. It will be called C<name>, and the bundle files get removed after
 linking it.
+
+This switch is automatically used when F<staticperl> is invoked with the
+C<mkapp> command instead of C<mkbundle>.
 
 The difference to the (mutually exclusive) C<--perl> option is that the
 binary created by this option will not try to act as a perl interpreter -
 instead it will simply initialise the perl interpreter, clean it up and
 exit.
 
-This switch is automatically used when F<staticperl> is invoked with the
-C<mkapp> command (instead of C<mkbundle>):
-
-To let it do something useful you I<must> add some boot code, e.g. with
+This means that, by default, it will do nothing but burna few CPU cycles
+- for it to do something useful you I<must> add some boot code, e.g. with
 the C<--boot> option.
 
-Example: create a standalone perl binary that will execute F<appfile> when
-it is started.
+Example: create a standalone perl binary called F<./myexe> that will
+execute F<appfile> when it is started.
 
    staticperl mkbundle --app myexe --boot appfile
 
-=item --use module | -Mmodule
+=item C<--static>
 
-Include the named module and all direct dependencies. This is done by
-C<require>'ing the module in a subprocess and tracing which other modules
-and files it actually loads. If the module uses L<AutoLoader>, then all
-splitfiles will be included as well.
+Add C<-static> to F<bundle.ldopts>, which means a fully static (if
+supported by the OS) executable will be created. This is not immensely
+useful when just creating the bundle files, but is most useful when
+linking a binary with the C<--perl> or C<--app> options.
 
-Example: include AnyEvent and AnyEvent::Impl::Perl.
-
-   staticperl mkbundle --use AnyEvent --use AnyEvent::Impl::Perl
-
-Sometimes you want to load old-style "perl libraries" (F<.pl> files), or
-maybe other weirdly named files. To do that, you need to quote the name in
-single or double quotes. When given on the command line, you probably need
-to quote once more to avoid your shell interpreting it. Common cases that
-need this are F<Config_heavy.pl> and F<utf8_heavy.pl>.
-
-Example: include the required files for F<perl -V> to work in all its
-glory (F<Config.pm> is included automatically by this).
-
-   # bourne shell
-   staticperl mkbundle --use '"Config_heavy.pl"'
-
-   # bundle specification file
-   use "Config_heavy.pl"
-
-The C<-Mmodule> syntax is included as an alias that might be easier to
-remember than C<use>. Or maybe it confuses people. Time will tell. Or
-maybe not. Argh.
-
-=item --eval "perl code" | -e "perl code"
-
-Sometimes it is easier (or necessary) to specify dependencies using perl
-code, or maybe one of the modules you use need a special use statement. In
-that case, you can use C<eval> to execute some perl snippet or set some
-variables or whatever you need. All files C<require>'d or C<use>'d in the
-script are included in the final bundle.
-
-Keep in mind that F<mkbundle> will only C<require> the modules named
-by the C<--use> option, so do not expect the symbols from modules you
-C<--use>'d earlier on the command line to be available.
-
-Example: force L<AnyEvent> to detect a backend and therefore include it
-in the final bundle.
-
-   staticperl mkbundle --eval 'use AnyEvent; AnyEvent::detect'
-
-   # or like this
-   staticperl mkbundle -MAnyEvent --eval 'use AnyEvent; AnyEvent::detect'
-
-Example: use a separate "bootstrap" script that C<use>'s lots of modules
-and include this in the final bundle, to be executed automatically.
-
-   staticperl mkbundle --eval 'do "bootstrap"' --boot bootstrap
-
-=item --boot filename
-
-Include the given file in the bundle and arrange for it to be executed
-(using a C<require>) before anything else when the new perl is
-initialised. This can be used to modify C<@INC> or anything else before
-the perl interpreter executes scripts given on the command line (or via
-C<-e>). This works even in an embedded interpreter.
-
-=item --usepacklist
-
-Read F<.packlist> files for each distribution that happens to match a
-module name you specified. Sounds weird, and it is, so expect semantics to
-change somehow in the future.
-
-The idea is that most CPAN distributions have a F<.pm> file that matches
-the name of the distribution (which is rather reasonable after all).
-
-If this switch is enabled, then if any of the F<.pm> files that have been
-selected match an install distribution, then all F<.pm>, F<.pl>, F<.al>
-and F<.ix> files installed by this distribution are also included.
-
-For example, using this switch, when the L<URI> module is specified, then
-all L<URI> submodules that have been installed via the CPAN distribution
-are included as well, so you don't have to manually specify them.
-
-=item --incglob pattern
-
-This goes through all library directories and tries to match any F<.pm>
-and F<.pl> files against the extended glob pattern (see below). If a file
-matches, it is added. This switch will automatically detect L<AutoLoader>
-files and the required link libraries for XS modules, but it will I<not>
-scan the file for dependencies (at the moment).
-
-This is mainly useful to include "everything":
-
-   --incglob '*'
-
-Or to include perl libraries, or trees of those, such as the unicode
-database files needed by many other modules:
-
-   --incglob '/unicore/**.pl'
-
-=item --add file | --add "file alias"
-
-Adds the given (perl) file into the bundle (and optionally call it
-"alias"). This is useful to include any custom files into the bundle.
-
-Example: embed the file F<httpd> as F<httpd.pm> when creating the bundle.
-
-   staticperl mkperl --add "httpd httpd.pm"
-
-It is also a great way to add any custom modules:
-
-   # specification file
-   add file1 myfiles/file1
-   add file2 myfiles/file2
-   add file3 myfiles/file3
-
-=item --binadd file | --add "file alias"
-
-Just like C<--add>, except that it treats the file as binary and adds it
-without any processing.
-
-You should probably add a C</> prefix to avoid clashing with embedded
-perl files (whose paths do not start with C</>), and/or use a special
-directory, such as C</res/name>.
-
-You can later get a copy of these files by calling C<staticperl::find
-"alias">.
-
-=item --include pattern | -i pattern | --exclude pattern | -x pattern
-
-These two options define an include/exclude filter that is used after all
-files selected by the other options have been found. Each include/exclude
-is applied to all files found so far - an include makes sure that the
-given files will be part of the resulting file set, an exclude will
-exclude files. The patterns are "extended glob patterns" (see below).
-
-For example, to include everything, except C<Devel> modules, but still
-include F<Devel::PPPort>, you could use this:
-
-   --incglob '*' -i '/Devel/PPPort.pm' -x '/Devel/**'
-
-=item --static
-
-When C<--perl> is also given, link statically instead of dynamically. The
-default is to link the new perl interpreter fully dynamic (that means all
-perl modules are linked statically, but all external libraries are still
+The default is to link the new binary dynamically (that means all perl
+modules are linked statically, but all external libraries are still
 referenced dynamically).
 
 Keep in mind that Solaris doesn't support static linking at all, and
-systems based on GNU libc don't really support it in a usable fashion
-either. Try uClibc if you want to create fully statically linked
-executables, or try the C<--staticlibs> option to link only some libraries
+systems based on GNU libc don't really support it in a very usable
+fashion either. Try uClibc if you want to create fully statically linked
+executables, or try the C<--staticlib> option to link only some libraries
 statically.
 
-=item --staticlib libname
+=item C<--staticlib> libname
 
 When not linking fully statically, this option allows you to link specific
-libraries statically. What it does is simply replace all occurances of
+libraries statically. What it does is simply replace all occurrences of
 C<-llibname> with the GCC-specific C<-Wl,-Bstatic -llibname -Wl,-Bdynamic>
 option.
 
@@ -2173,17 +2312,14 @@ This will have no effect unless the library is actually linked against,
 specifically, C<--staticlib> will not link against the named library
 unless it would be linked against anyway.
 
-Example: link libcrypt statically into the binary.
+Example: link libcrypt statically into the final binary.
 
    staticperl mkperl -MIO::AIO --staticlib crypt
 
-   # ldopts might nwo contain:
+   # ldopts might now contain:
    # -lm -Wl,-Bstatic -lcrypt -Wl,-Bdynamic -lpthread
 
-=item any other argument
-
-Any other argument is interpreted as a bundle specification file, which
-supports most long options (without extra quoting), one option per line.
+=back
 
 =back
 
@@ -2207,7 +2343,7 @@ anywhere else in the hierarchy.
 That is, F<idna.pl> will match any file called F<idna.pl> anywhere in the
 hierarchy, but not any directories of the same name.
 
-=item A F<*> matches any single component.
+=item A F<*> matches anything within a single path component.
 
 That is, F</unicore/*.pl> would match all F<.pl> files directly inside
 C</unicore>, not any deeper level F<.pl> files. Or in other words, F<*>
@@ -2508,7 +2644,7 @@ Returns the list of all paths embedded in this binary.
 
 =back
 
-=head1 FULLY STATIC BINARIES - BUILDROOT
+=head1 FULLY STATIC BINARIES - UCLIBC AND BUILDROOT
 
 To make truly static (Linux-) libraries, you might want to have a look at
 buildroot (L<http://buildroot.uclibc.org/>).
@@ -2605,7 +2741,7 @@ If you want to handle IRIs or IDNs (L<AnyEvent::Util> punycode and idn
 functions), you also need to include C<"AnyEvent/Util/idna.pl"> and
 C<"AnyEvent/Util/uts46data.pl">.
 
-Or you can use C<--usepacklist> and specify C<-MAnyEvent> to include
+Or you can use C<--usepacklists> and specify C<-MAnyEvent> to include
 everything.
 
 =item Carp
@@ -2621,14 +2757,14 @@ both.
 
 =item Term::ReadLine::Perl
 
-Also needs L<Term::ReadLine::readline>, or C<--usepacklist>.
+Also needs L<Term::ReadLine::readline>, or C<--usepacklists>.
 
 =item URI
 
 URI implements schemes as separate modules - the generic URL scheme is
 implemented in L<URI::_generic>, HTTP is implemented in L<URI::http>. If
 you need to use any of these schemes, you should include these manually,
-or use C<--usepacklist>.
+or use C<--usepacklists>.
 
 =back
 
@@ -2636,14 +2772,22 @@ or use C<--usepacklist>.
 
 =over 4
 
-=item Linking everything in
+=item Just link everything in
 
 To link just about everything installed in the perl library into a new
-perl, try this:
+perl, try this (the first time this runs it will take a long time, as a
+lot of files need to be parsed):
 
-   staticperl mkperl --strip ppi --incglob '*'
+   staticperl mkperl -v --strip ppi --incglob '*'
 
-=item Getting rid of netdb function
+If you don't mind the extra megabytes, this can be a very effective way of
+creating bundles without having to worry about forgetting any modules.
+
+You get even more useful variants of this method by first selecting
+everything, and then excluding stuff you are reasonable sure not to need -
+L<bigperl|http://staticperl.schmorp.de/bigperl.html> uses this approach.
+
+=item Getting rid of netdb functions
 
 The perl core has lots of netdb functions (C<getnetbyname>, C<getgrent>
 and so on) that few applications use. You can avoid compiling them in by

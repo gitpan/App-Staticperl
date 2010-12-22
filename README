@@ -261,18 +261,45 @@ THE STATICPERL SCRIPT
        # run it
        ./app
 
+    Here are the three phase 2 commands:
+
+    staticperl mkbundle args...
+        The "default" bundle command - it interprets the given bundle
+        options and writes out bundle.h, bundle.c, bundle.ccopts and
+        bundle.ldopts files, useful for embedding.
+
+    staticperl mkperl args...
+        Creates a bundle just like staticperl mkbundle (in fact, it's the
+        same as invoking staticperl mkbundle --perl args...), but then
+        compiles and links a new perl interpreter that embeds the created
+        bundle, then deletes all intermediate files.
+
+    staticperl mkapp filename args...
+        Does the same as staticperl mkbundle (in fact, it's the same as
+        invoking staticperl mkbundle --app filename args...), but then
+        compiles and links a new standalone application that simply
+        initialises the perl interpreter.
+
+        The difference to staticperl mkperl is that the standalone
+        application does not act like a perl interpreter would - in fact, by
+        default it would just do nothing and exit immediately, so you should
+        specify some code to be executed via the --boot option.
+
    OPTION PROCESSING
     All options can be given as arguments on the command line (typically
     using long (e.g. "--verbose") or short option (e.g. "-v") style). Since
-    specifying a lot of modules can make the command line very cumbersome,
-    you can put all long options into a "bundle specification file" (with or
-    without "--" prefix) and specify this bundle file instead.
+    specifying a lot of options can make the command line very long and
+    unwieldy, you can put all long options into a "bundle specification
+    file" (one option per line, with or without "--" prefix) and specify
+    this bundle file instead.
 
-    For example, the command given earlier could also look like this:
+    For example, the command given earlier to link a new perl could also
+    look like this:
 
        staticperl mkperl httpd.bundle
 
-    And all options could be in httpd.bundle:
+    With all options stored in the httpd.bundle file (one option per line,
+    everything after the option is an argument):
 
        use "Config_heavy.pl"
        use AnyEvent::Impl::Perl
@@ -281,270 +308,350 @@ THE STATICPERL SCRIPT
        add eg/httpd httpd.pm
 
     All options that specify modules or files to be added are processed in
-    the order given on the command line (that affects the "--use" and
-    "--eval" options at the moment).
-
-   PACKAGE SELECTION WORKFLOW
-    staticperl mkbundle has a number of options to control package
-    selection. This section describes how they interact with each other.
-    Also, since I am still a newbie w.r.t. these issues, maybe future
-    versions of staticperl will change this, so watch out :)
-
-    The idiom "in order" means "in order that they are specified on the
-    commandline". If you use a bundle specification file, then the options
-    will be processed as if they were given in place of the bundle file
-    name.
-
-    1. apply all "--use", "--eval", "--add", "--addbin" and "--incglob"
-    options, in order.
-        In addition, "--use" and "--eval" dependencies will be added when
-        the options are processed.
-
-    2. apply all "--include" and "--exclude" options, in order.
-        All this step does is potentially reduce the number of files already
-        selected or found in phase 1.
-
-    3. find all modules (== .pm files), gather their static archives (.a)
-    and AutoLoader splitfiles (.ix and .al files), find any extra libraries
-    they need for linking (extralibs.ld) and optionally evaluate any
-    .packlist files.
-        This step is required to link against XS extensions and also adds
-        files required for AutoLoader to do it's job.
-
-    After this, all the files selected for bundling will be read and
-    processed (stripped), the bundle files will be written, and optionally a
-    new perl or application binary will be linked.
-
-   MKBUNDLE OPTIONS
-    --verbose | -v
-        Increases the verbosity level by one (the default is 1).
-
-    --quiet | -q
-        Decreases the verbosity level by one.
-
-    --strip none|pod|ppi
-        Specify the stripping method applied to reduce the file of the perl
-        sources included.
-
-        The default is "pod", which uses the Pod::Strip module to remove all
-        pod documentation, which is very fast and reduces file size a lot.
-
-        The "ppi" method uses PPI to parse and condense the perl sources.
-        This saves a lot more than just Pod::Strip, and is generally safer,
-        but is also a lot slower (some files take almost a minute to strip -
-        staticperl maintains a cache of stripped files to speed up
-        subsequent runs for this reason). Note that this method doesn't
-        optimise for raw file size, but for best compression (that means
-        that the uncompressed file size is a bit larger, but the files
-        compress better, e.g. with upx).
-
-        Last not least, if you need accurate line numbers in error messages,
-        or in the unlikely case where "pod" is too slow, or some module gets
-        mistreated, you can specify "none" to not mangle included perl
-        sources in any way.
-
-    --perl
-        After writing out the bundle files, try to link a new perl
-        interpreter. It will be called perl and will be left in the current
-        working directory. The bundle files will be removed.
-
-        This switch is automatically used when staticperl is invoked with
-        the "mkperl" command (instead of "mkbundle"):
-
-           # build a new ./perl with only common::sense in it - very small :)
-           staticperl mkperl -Mcommon::sense
-
-    --app name
-        After writing out the bundle files, try to link a new standalone
-        program. It will be called "name", and the bundle files get removed
-        after linking it.
-
-        The difference to the (mutually exclusive) "--perl" option is that
-        the binary created by this option will not try to act as a perl
-        interpreter - instead it will simply initialise the perl
-        interpreter, clean it up and exit.
-
-        This switch is automatically used when staticperl is invoked with
-        the "mkapp" command (instead of "mkbundle"):
-
-        To let it do something useful you *must* add some boot code, e.g.
-        with the "--boot" option.
-
-        Example: create a standalone perl binary that will execute appfile
-        when it is started.
-
-           staticperl mkbundle --app myexe --boot appfile
-
-    --use module | -Mmodule
-        Include the named module and all direct dependencies. This is done
-        by "require"'ing the module in a subprocess and tracing which other
-        modules and files it actually loads. If the module uses AutoLoader,
-        then all splitfiles will be included as well.
-
-        Example: include AnyEvent and AnyEvent::Impl::Perl.
-
-           staticperl mkbundle --use AnyEvent --use AnyEvent::Impl::Perl
-
-        Sometimes you want to load old-style "perl libraries" (.pl files),
-        or maybe other weirdly named files. To do that, you need to quote
-        the name in single or double quotes. When given on the command line,
-        you probably need to quote once more to avoid your shell
-        interpreting it. Common cases that need this are Config_heavy.pl and
-        utf8_heavy.pl.
-
-        Example: include the required files for perl -V to work in all its
-        glory (Config.pm is included automatically by this).
-
-           # bourne shell
-           staticperl mkbundle --use '"Config_heavy.pl"'
-
-           # bundle specification file
-           use "Config_heavy.pl"
-
-        The "-Mmodule" syntax is included as an alias that might be easier
-        to remember than "use". Or maybe it confuses people. Time will tell.
-        Or maybe not. Argh.
-
-    --eval "perl code" | -e "perl code"
-        Sometimes it is easier (or necessary) to specify dependencies using
-        perl code, or maybe one of the modules you use need a special use
-        statement. In that case, you can use "eval" to execute some perl
-        snippet or set some variables or whatever you need. All files
-        "require"'d or "use"'d in the script are included in the final
-        bundle.
-
-        Keep in mind that mkbundle will only "require" the modules named by
-        the "--use" option, so do not expect the symbols from modules you
-        "--use"'d earlier on the command line to be available.
-
-        Example: force AnyEvent to detect a backend and therefore include it
-        in the final bundle.
-
-           staticperl mkbundle --eval 'use AnyEvent; AnyEvent::detect'
-
-           # or like this
-           staticperl mkbundle -MAnyEvent --eval 'use AnyEvent; AnyEvent::detect'
-
-        Example: use a separate "bootstrap" script that "use"'s lots of
-        modules and include this in the final bundle, to be executed
-        automatically.
-
-           staticperl mkbundle --eval 'do "bootstrap"' --boot bootstrap
-
-    --boot filename
-        Include the given file in the bundle and arrange for it to be
-        executed (using a "require") before anything else when the new perl
-        is initialised. This can be used to modify @INC or anything else
-        before the perl interpreter executes scripts given on the command
-        line (or via "-e"). This works even in an embedded interpreter.
-
-    --usepacklist
-        Read .packlist files for each distribution that happens to match a
-        module name you specified. Sounds weird, and it is, so expect
-        semantics to change somehow in the future.
-
-        The idea is that most CPAN distributions have a .pm file that
-        matches the name of the distribution (which is rather reasonable
-        after all).
-
-        If this switch is enabled, then if any of the .pm files that have
-        been selected match an install distribution, then all .pm, .pl, .al
-        and .ix files installed by this distribution are also included.
-
-        For example, using this switch, when the URI module is specified,
-        then all URI submodules that have been installed via the CPAN
-        distribution are included as well, so you don't have to manually
-        specify them.
-
-    --incglob pattern
-        This goes through all library directories and tries to match any .pm
-        and .pl files against the extended glob pattern (see below). If a
-        file matches, it is added. This switch will automatically detect
-        AutoLoader files and the required link libraries for XS modules, but
-        it will *not* scan the file for dependencies (at the moment).
-
-        This is mainly useful to include "everything":
-
-           --incglob '*'
-
-        Or to include perl libraries, or trees of those, such as the unicode
-        database files needed by many other modules:
-
-           --incglob '/unicore/**.pl'
-
-    --add file | --add "file alias"
-        Adds the given (perl) file into the bundle (and optionally call it
-        "alias"). This is useful to include any custom files into the
-        bundle.
-
-        Example: embed the file httpd as httpd.pm when creating the bundle.
-
-           staticperl mkperl --add "httpd httpd.pm"
-
-        It is also a great way to add any custom modules:
-
-           # specification file
-           add file1 myfiles/file1
-           add file2 myfiles/file2
-           add file3 myfiles/file3
-
-    --binadd file | --add "file alias"
-        Just like "--add", except that it treats the file as binary and adds
-        it without any processing.
-
-        You should probably add a "/" prefix to avoid clashing with embedded
-        perl files (whose paths do not start with "/"), and/or use a special
-        directory, such as "/res/name".
-
-        You can later get a copy of these files by calling "staticperl::find
-        "alias"".
-
-    --include pattern | -i pattern | --exclude pattern | -x pattern
-        These two options define an include/exclude filter that is used
-        after all files selected by the other options have been found. Each
-        include/exclude is applied to all files found so far - an include
-        makes sure that the given files will be part of the resulting file
-        set, an exclude will exclude files. The patterns are "extended glob
-        patterns" (see below).
-
-        For example, to include everything, except "Devel" modules, but
-        still include Devel::PPPort, you could use this:
-
-           --incglob '*' -i '/Devel/PPPort.pm' -x '/Devel/**'
-
-    --static
-        When "--perl" is also given, link statically instead of dynamically.
-        The default is to link the new perl interpreter fully dynamic (that
-        means all perl modules are linked statically, but all external
-        libraries are still referenced dynamically).
-
-        Keep in mind that Solaris doesn't support static linking at all, and
-        systems based on GNU libc don't really support it in a usable
-        fashion either. Try uClibc if you want to create fully statically
-        linked executables, or try the "--staticlibs" option to link only
-        some libraries statically.
-
-    --staticlib libname
-        When not linking fully statically, this option allows you to link
-        specific libraries statically. What it does is simply replace all
-        occurances of "-llibname" with the GCC-specific "-Wl,-Bstatic
-        -llibname -Wl,-Bdynamic" option.
-
-        This will have no effect unless the library is actually linked
-        against, specifically, "--staticlib" will not link against the named
-        library unless it would be linked against anyway.
-
-        Example: link libcrypt statically into the binary.
-
-           staticperl mkperl -MIO::AIO --staticlib crypt
-
-           # ldopts might nwo contain:
-           # -lm -Wl,-Bstatic -lcrypt -Wl,-Bdynamic -lpthread
-
-    any other argument
-        Any other argument is interpreted as a bundle specification file,
-        which supports most long options (without extra quoting), one option
-        per line.
+    the order given on the command line.
+
+   BUNDLE CREATION WORKFLOW / STATICPELR MKBUNDLE OPTIONS
+    staticperl mkbundle works by first assembling a list of candidate files
+    and modules to include, then filtering them by include/exclude patterns.
+    The remaining modules (together with their direct dependencies, such as
+    link libraries and AutoLoader files) are then converted into bundle
+    files suitable for embedding. staticperl mkbundle can then optionally
+    build a new perl interpreter or a standalone application.
+
+    Step 0: Generic argument processing.
+        The following options influence staticperl mkbundle itself.
+
+        "--verbose" | "-v"
+            Increases the verbosity level by one (the default is 1).
+
+        "--quiet" | "-q"
+            Decreases the verbosity level by one.
+
+        any other argument
+            Any other argument is interpreted as a bundle specification
+            file, which supports all options (without extra quoting), one
+            option per line, in the format "option" or "option argument".
+            They will effectively be expanded and processed as if they were
+            directly written on the command line, in place of the file name.
+
+    Step 1: gather candidate files and modules
+        In this step, modules, perl libraries (.pl files) and other files
+        are selected for inclusion in the bundle. The relevant options are
+        executed in order (this makes a difference mostly for "--eval",
+        which can rely on earlier "--use" options to have been executed).
+
+        "--use" module | "-M"module
+            Include the named module and trace direct dependencies. This is
+            done by "require"'ing the module in a subprocess and tracing
+            which other modules and files it actually loads.
+
+            Example: include AnyEvent and AnyEvent::Impl::Perl.
+
+               staticperl mkbundle --use AnyEvent --use AnyEvent::Impl::Perl
+
+            Sometimes you want to load old-style "perl libraries" (.pl
+            files), or maybe other weirdly named files. To do that, you need
+            to quote the name in single or double quotes (this is because
+            staticperl *literally* just adds the string after the "require"
+            - which acts different when confronted with quoted vs. unquoted
+            strings). When given on the command line, you probably need to
+            quote once more to avoid your shell interpreting it. Common
+            cases that need this are Config_heavy.pl and utf8_heavy.pl.
+
+            Example: include the required files for perl -V to work in all
+            its glory (Config.pm is included automatically by this).
+
+               # bourne shell
+               staticperl mkbundle --use '"Config_heavy.pl"'
+
+               # bundle specification file
+               use "Config_heavy.pl"
+
+            The "-M"module syntax is included as a convenience that might be
+            easier to remember than "--use" - it's the same switch as perl
+            itself uses to load modules. Or maybe it confuses people. Time
+            will tell. Or maybe not. Sigh.
+
+        "--eval" "perl code" | "-e" "perl code"
+            Sometimes it is easier (or necessary) to specify dependencies
+            using perl code, or maybe one of the modules you use need a
+            special use statement. In that case, you can use "--eval" to
+            execute some perl snippet or set some variables or whatever you
+            need. All files "require"'d or "use"'d while executing the
+            snippet are included in the final bundle.
+
+            Keep in mind that mkbundle will only "require" the modules named
+            by the "--use" option, so do not expect the symbols from modules
+            you "--use"'d earlier on the command line to be available.
+
+            Example: force AnyEvent to detect a backend and therefore
+            include it in the final bundle.
+
+               staticperl mkbundle --eval 'use AnyEvent; AnyEvent::detect'
+
+               # or like this
+               staticperl mkbundle -MAnyEvent --eval 'AnyEvent::detect'
+
+            Example: use a separate "bootstrap" script that "use"'s lots of
+            modules and also include this in the final bundle, to be
+            executed automatically when the interpreter is initialised.
+
+               staticperl mkbundle --eval 'do "bootstrap"' --boot bootstrap
+
+        "--boot" filename
+            Include the given file in the bundle and arrange for it to be
+            executed (using "require") before the main program when the new
+            perl is initialised. This can be used to modify @INC or do
+            similar modifications before the perl interpreter executes
+            scripts given on the command line (or via "-e"). This works even
+            in an embedded interpreter - the file will be executed during
+            interpreter initialisation in that case.
+
+        "--incglob" pattern
+            This goes through all standard library directories and tries to
+            match any .pm and .pl files against the extended glob pattern
+            (see below). If a file matches, it is added. The pattern is
+            matched against the full path of the file (sans the library
+            directory prefix), e.g. Sys/Syslog.pm.
+
+            This is very useful to include "everything":
+
+               --incglob '*'
+
+            It is also useful for including perl libraries, or trees of
+            those, such as the unicode database files needed by some perl
+            built-ins, the regex engine and other modules.
+
+               --incglob '/unicore/**.pl'
+
+        "--add" file | "--add" "file alias"
+            Adds the given (perl) file into the bundle (and optionally call
+            it "alias"). The file is either an absolute path or a path
+            relative to the current directory. If an alias is specified,
+            then this is the name it will use for @INC searches, otherwise
+            the file will be used as the internal name.
+
+            This switch is used to include extra files into the bundle.
+
+            Example: embed the file httpd in the current directory as
+            httpd.pm when creating the bundle.
+
+               staticperl mkperl --add "httpd httpd.pm"
+
+            Example: add local files as extra modules in the bundle.
+
+               # specification file
+               add file1 myfiles/file1.pm
+               add file2 myfiles/file2.pm
+               add file3 myfiles/file3.pl
+
+               # then later, in perl, use
+               use myfiles::file1;
+               require myfiles::file2;
+               my $res = do "myfiles/file3.pl";
+
+        "--binadd" file | "--add" "file alias"
+            Just like "--add", except that it treats the file as binary and
+            adds it without any postprocessing (perl files might get
+            stripped to reduce their size).
+
+            You should probably add a "/" prefix to avoid clashing with
+            embedded perl files (whose paths do not start with "/"), and/or
+            use a special directory prefix, such as "/res/name".
+
+            You can later get a copy of these files by calling
+            "staticperl::find "alias"".
+
+            An alternative way to embed binary files is to convert them to
+            perl and use "do" to get the contents - this method is a bit
+            cumbersome, but works both inside and outside of a staticperl
+            bundle:
+
+               # a "binary" file, call it "bindata.pl"
+               <<'SOME_MARKER'
+               binary data NOT containing SOME_MARKER
+               SOME_MARKER
+
+               # load the binary
+               chomp (my $data = do "bindata.pl");
+
+    Step 2: filter all files using "--include" and "--exclude" options.
+        After all candidate files and modules are added, they are *filtered*
+        by a combination of "--include" and "--exclude" patterns (there is
+        an implicit "--include *" at the end, so if no filters are
+        specified, all files are included).
+
+        All that this step does is potentially reduce the number of files
+        that are to be included - no new files are added during this step.
+
+        "--include" pattern | "-i" pattern | "--exclude" pattern | "-x"
+        pattern
+            These specify an include or exclude pattern to be applied to the
+            candidate file list. An include makes sure that the given files
+            will be part of the resulting file set, an exclude will exclude
+            remaining files. The patterns are "extended glob patterns" (see
+            below).
+
+            The patterns are applied "in order" - files included via earlier
+            "--include" specifications cannot be removed by any following
+            "--exclude", and likewise, and file excluded by an earlier
+            "--exclude" cannot be added by any following "--include".
+
+            For example, to include everything except "Devel" modules, but
+            still include Devel::PPPort, you could use this:
+
+               --incglob '*' -i '/Devel/PPPort.pm' -x '/Devel/**'
+
+    Step 3: add any extra or "hidden" dependencies.
+        staticperl currently knows about three extra types of depdendencies
+        that are added automatically. Only one (.packlist files) is
+        currently optional and can be influenced, the others are always
+        included:
+
+        "--usepacklists"
+            Read .packlist files for each distribution that happens to match
+            a module name you specified. Sounds weird, and it is, so expect
+            semantics to change somehow in the future.
+
+            The idea is that most CPAN distributions have a .pm file that
+            matches the name of the distribution (which is rather reasonable
+            after all).
+
+            If this switch is enabled, then if any of the .pm files that
+            have been selected match an install distribution, then all .pm,
+            .pl, .al and .ix files installed by this distribution are also
+            included.
+
+            For example, using this switch, when the URI module is
+            specified, then all URI submodules that have been installed via
+            the CPAN distribution are included as well, so you don't have to
+            manually specify them.
+
+        AutoLoader splitfiles
+            Some modules use AutoLoader - less commonly (hopefully) used
+            functions are split into separate .al files, and an index (.ix)
+            file contains the prototypes.
+
+            Both .ix and .al files will be detected automatically and added
+            to the bundle.
+
+        link libraries (.a files)
+            Modules using XS (or any other non-perl language extension
+            compiled at installation time) will have a static archive
+            (typically .a). These will automatically be added to the linker
+            options in bundle.ldopts.
+
+            Should staticperl find a dynamic link library (typically .so) it
+            will warn about it - obviously this shouldn't happen unless you
+            use staticperl on the wrong perl, or one (probably wrongly)
+            configured to use dynamic loading.
+
+        extra libraries (extralibs.ld)
+            Some modules need linking against external libraries - these are
+            found in extralibs.ld and added to bundle.ldopts.
+
+    Step 4: write bundle files and optionally link a program
+        At this point, the select files will be read, processed (stripped)
+        and finally the bundle files get written to disk, and staticperl
+        mkbundle is normally finished. Optionally, it can go a step further
+        and either link a new perl binary with all selected modules and
+        files inside, or build a standalone application.
+
+        Both the contents of the bundle files and any extra linking is
+        controlled by these options:
+
+        "--strip" "none"|"pod"|"ppi"
+            Specify the stripping method applied to reduce the file of the
+            perl sources included.
+
+            The default is "pod", which uses the Pod::Strip module to remove
+            all pod documentation, which is very fast and reduces file size
+            a lot.
+
+            The "ppi" method uses PPI to parse and condense the perl
+            sources. This saves a lot more than just Pod::Strip, and is
+            generally safer, but is also a lot slower (some files take
+            almost a minute to strip - staticperl maintains a cache of
+            stripped files to speed up subsequent runs for this reason).
+            Note that this method doesn't optimise for raw file size, but
+            for best compression (that means that the uncompressed file size
+            is a bit larger, but the files compress better, e.g. with upx).
+
+            Last not least, if you need accurate line numbers in error
+            messages, or in the unlikely case where "pod" is too slow, or
+            some module gets mistreated, you can specify "none" to not
+            mangle included perl sources in any way.
+
+        "--perl"
+            After writing out the bundle files, try to link a new perl
+            interpreter. It will be called perl and will be left in the
+            current working directory. The bundle files will be removed.
+
+            This switch is automatically used when staticperl is invoked
+            with the "mkperl" command instead of "mkbundle".
+
+            Example: build a new ./perl binary with only common::sense
+            inside - it will be even smaller than the standard perl
+            interpreter as none of the modules of the base distribution
+            (such as Fcntl) will be included.
+
+               staticperl mkperl -Mcommon::sense
+
+        "--app" name
+            After writing out the bundle files, try to link a new standalone
+            program. It will be called "name", and the bundle files get
+            removed after linking it.
+
+            This switch is automatically used when staticperl is invoked
+            with the "mkapp" command instead of "mkbundle".
+
+            The difference to the (mutually exclusive) "--perl" option is
+            that the binary created by this option will not try to act as a
+            perl interpreter - instead it will simply initialise the perl
+            interpreter, clean it up and exit.
+
+            This means that, by default, it will do nothing but burna few
+            CPU cycles - for it to do something useful you *must* add some
+            boot code, e.g. with the "--boot" option.
+
+            Example: create a standalone perl binary called ./myexe that
+            will execute appfile when it is started.
+
+               staticperl mkbundle --app myexe --boot appfile
+
+        "--static"
+            Add "-static" to bundle.ldopts, which means a fully static (if
+            supported by the OS) executable will be created. This is not
+            immensely useful when just creating the bundle files, but is
+            most useful when linking a binary with the "--perl" or "--app"
+            options.
+
+            The default is to link the new binary dynamically (that means
+            all perl modules are linked statically, but all external
+            libraries are still referenced dynamically).
+
+            Keep in mind that Solaris doesn't support static linking at all,
+            and systems based on GNU libc don't really support it in a very
+            usable fashion either. Try uClibc if you want to create fully
+            statically linked executables, or try the "--staticlib" option
+            to link only some libraries statically.
+
+        "--staticlib" libname
+            When not linking fully statically, this option allows you to
+            link specific libraries statically. What it does is simply
+            replace all occurrences of "-llibname" with the GCC-specific
+            "-Wl,-Bstatic -llibname -Wl,-Bdynamic" option.
+
+            This will have no effect unless the library is actually linked
+            against, specifically, "--staticlib" will not link against the
+            named library unless it would be linked against anyway.
+
+            Example: link libcrypt statically into the final binary.
+
+               staticperl mkperl -MIO::AIO --staticlib crypt
+
+               # ldopts might now contain:
+               # -lm -Wl,-Bstatic -lcrypt -Wl,-Bdynamic -lpthread
 
    EXTENDED GLOB PATTERNS
     Some options of staticperl mkbundle expect an *extended glob pattern*.
@@ -562,7 +669,7 @@ THE STATICPERL SCRIPT
         That is, idna.pl will match any file called idna.pl anywhere in the
         hierarchy, but not any directories of the same name.
 
-    A * matches any single component.
+    A * matches anything within a single path component.
         That is, /unicore/*.pl would match all .pl files directly inside
         "/unicore", not any deeper level .pl files. Or in other words, *
         will not match slashes.
@@ -802,7 +909,7 @@ RUNTIME FUNCTIONALITY
     @paths = staticperl::list
         Returns the list of all paths embedded in this binary.
 
-FULLY STATIC BINARIES - BUILDROOT
+FULLY STATIC BINARIES - UCLIBC AND BUILDROOT
     To make truly static (Linux-) libraries, you might want to have a look
     at buildroot (<http://buildroot.uclibc.org/>).
 
@@ -893,7 +1000,7 @@ RECIPES / SPECIFIC MODULES
         functions), you also need to include "AnyEvent/Util/idna.pl" and
         "AnyEvent/Util/uts46data.pl".
 
-        Or you can use "--usepacklist" and specify "-MAnyEvent" to include
+        Or you can use "--usepacklists" and specify "-MAnyEvent" to include
         everything.
 
     Carp
@@ -906,21 +1013,31 @@ RECIPES / SPECIFIC MODULES
         both.
 
     Term::ReadLine::Perl
-        Also needs Term::ReadLine::readline, or "--usepacklist".
+        Also needs Term::ReadLine::readline, or "--usepacklists".
 
     URI URI implements schemes as separate modules - the generic URL scheme
         is implemented in URI::_generic, HTTP is implemented in URI::http.
         If you need to use any of these schemes, you should include these
-        manually, or use "--usepacklist".
+        manually, or use "--usepacklists".
 
   RECIPES
-    Linking everything in
+    Just link everything in
         To link just about everything installed in the perl library into a
-        new perl, try this:
+        new perl, try this (the first time this runs it will take a long
+        time, as a lot of files need to be parsed):
 
-           staticperl mkperl --strip ppi --incglob '*'
+           staticperl mkperl -v --strip ppi --incglob '*'
 
-    Getting rid of netdb function
+        If you don't mind the extra megabytes, this can be a very effective
+        way of creating bundles without having to worry about forgetting any
+        modules.
+
+        You get even more useful variants of this method by first selecting
+        everything, and then excluding stuff you are reasonable sure not to
+        need - bigperl <http://staticperl.schmorp.de/bigperl.html> uses this
+        approach.
+
+    Getting rid of netdb functions
         The perl core has lots of netdb functions ("getnetbyname",
         "getgrent" and so on) that few applications use. You can avoid
         compiling them in by putting the following fragment into a

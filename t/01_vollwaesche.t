@@ -24,17 +24,29 @@ EOF
 
 $ENV{STATICPERLRC} = "$PFX/staticperlrc";
 
-$DEVNULL=" >/dev/null 2>&1 </dev/null";
+sub tryrun {
+   my ($test, $command) = @_;
+
+   if (my $exit = system "exec >$PFX/output 2>&1; $command") {
+      printf STDERR
+             "\n\n# FAILED #%d exit status 0x%04x (%s)\n\n# OUTPUT:\n%s\n\n",
+             $test, $exit, $command,
+             do { local *FH; open FH, "<$PFX/output" or die "$PFX/output: $!"; local $/; <FH> };
+      print "not ok $test\n";
+   } else {
+      print "ok $test\n";
+   }
+}
 
 print qx<sh bin/staticperl version> =~ /staticperl version / ? "" : "not ", "ok 1\n";
 
-print system ("sh bin/staticperl install $DEVNULL") ? "not " : "", "ok 2\n";
-print system ("sh bin/staticperl instcpan Games::Go::SimpleBoard $DEVNULL") ? "not " : "", "ok 3\n";
-print system ("sh bin/staticperl mkapp $PFX/perl.bin -MGames::Go::SimpleBoard $DEVNULL") ? "not " : "", "ok 4\n";
-print system ("$PFX/perl.bin -e0 $DEVNULL") ? "not " : "", "ok 5\n";
-print system ("$PFX/perl.bin -MGames::Go::SimpleBoard -e0 $DEVNULL") ? "not " : "", "ok 6\n";
-print system ("sh bin/staticperl mkapp $PFX/perl.bin -MGames::Go::SimpleBoard -MPOSIX $DEVNULL") ? "not " : "", "ok 7\n";
-print system ("$PFX/perl.bin -e0 $DEVNULL") ? "not " : "", "ok 8\n";
-print system ("$PFX/perl.bin -MPOSIX -e0 $DEVNULL") ? "not " : "", "ok 9\n";
+tryrun 2, "sh bin/staticperl install";
+tryrun 3, "sh bin/staticperl instcpan Games::Go::SimpleBoard";
+tryrun 4, "sh bin/staticperl mkapp $PFX/perl.bin -MGames::Go::SimpleBoard";
+tryrun 5, "$PFX/perl.bin -e0";
+tryrun 6, "$PFX/perl.bin -MGames::Go::SimpleBoard -e0";
+tryrun 7, "sh bin/staticperl mkapp $PFX/perl.bin -MGames::Go::SimpleBoard -MPOSIX";
+tryrun 8, "$PFX/perl.bin -e0";
+tryrun 9, "$PFX/perl.bin -MPOSIX -e0";
 
 

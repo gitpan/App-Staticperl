@@ -232,8 +232,6 @@ sub get_dirtree {
          if (-d "$path/.") {
             $scan->($path);
          } else {
-            next unless /\.(?:pm|pl)$/;
-
             $path = substr $path, $skip;
             push @tree, $path
                unless exists $INCSKIP{$path};
@@ -296,7 +294,7 @@ sub cmd_incglob {
       my ($dir, $files) = @$_;
 
       $pm{$_} = "$dir/$_"
-         for grep /$pattern/, @$files;
+         for grep /$pattern/ && /\.(pl|pm)$/, @$files;
    }
 }
 
@@ -327,24 +325,24 @@ use Getopt::Long;
 
 sub parse_argv {
    GetOptions
-      "strip=s"      => \$STRIP,
-      "cache=s"      => \$CACHE, # internal option
-      "verbose|v"    => sub { ++$VERBOSE },
-      "quiet|q"      => sub { --$VERBOSE },
-      "perl"         => \$PERL,
-      "app=s"        => \$APP,
-      "eval|e=s"     => sub { trace_eval    $_[1] },
-      "use|M=s"      => sub { trace_module  $_[1] },
-      "boot=s"       => sub { cmd_boot      $_[1] },
-      "add=s"        => sub { cmd_add       $_[1], 0 },
-      "addbin=s"     => sub { cmd_add       $_[1], 1 },
-      "incglob=s"    => sub { cmd_incglob   $_[1] },
-      "include|i=s"  => sub { cmd_include   $_[1], 1 },
-      "exclude|x=s"  => sub { cmd_include   $_[1], 0 },
-      "static!"      => \$STATIC,
-      "usepacklist!" => \$PACKLIST,
-      "staticlib=s"  => sub { cmd_staticlib $_[1] },
-      "<>"           => sub { cmd_file      $_[0] },
+      "strip=s"       => \$STRIP,
+      "cache=s"       => \$CACHE, # internal option
+      "verbose|v"     => sub { ++$VERBOSE },
+      "quiet|q"       => sub { --$VERBOSE },
+      "perl"          => \$PERL,
+      "app=s"         => \$APP,
+      "eval|e=s"      => sub { trace_eval    $_[1] },
+      "use|M=s"       => sub { trace_module  $_[1] },
+      "boot=s"        => sub { cmd_boot      $_[1] },
+      "add=s"         => sub { cmd_add       $_[1], 0 },
+      "addbin=s"      => sub { cmd_add       $_[1], 1 },
+      "incglob=s"     => sub { cmd_incglob   $_[1] },
+      "include|i=s"   => sub { cmd_include   $_[1], 1 },
+      "exclude|x=s"   => sub { cmd_include   $_[1], 0 },
+      "static!"       => \$STATIC,
+      "usepacklists!" => \$PACKLIST,
+      "staticlib=s"   => sub { cmd_staticlib $_[1] },
+      "<>"            => sub { cmd_file      $_[0] },
       or exit 1;
 }
 
@@ -359,7 +357,7 @@ die "cannot specify both --app and --perl\n"
 trace_module "PerlIO::scalar";
 
 #############################################################################
-# include/exclude apply
+# apply include/exclude
 
 {
    my %pmi;
@@ -379,7 +377,7 @@ trace_module "PerlIO::scalar";
          # exclude
          delete @pm{@match};
 
-         print "applying exclude $glob - excluded ", (scalar @match), " files.\n"
+         print "applying exclude $glob - removed ", (scalar @match), " files.\n"
             if $VERBOSE >= 5;
       }
    }
@@ -389,7 +387,7 @@ trace_module "PerlIO::scalar";
 }
 
 #############################################################################
-# scan for AutoLoader and static archives
+# scan for AutoLoader, static archives and other dependencies
 
 sub scan_al {
    my ($auto, $autodir) = @_;
@@ -469,6 +467,7 @@ for my $pm (keys %pm) {
 
             while (<$fh>) {
                chomp;
+               s/ .*$//; # newer-style .packlists might contain key=value pairs
 
                # only include certain files (.al, .ix, .pm, .pl)
                if (/\.(pm|pl|al|ix)$/) {
