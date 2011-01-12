@@ -73,7 +73,7 @@ LC_ALL=C; export LC_ALL # just to be on the safe side
 
 # set version in a way that Makefile.PL can extract
 VERSION=VERSION; eval \
-$VERSION=0.92
+$VERSION="1.0"
 
 BZ2=bz2
 BZIP2=bzip2
@@ -154,8 +154,8 @@ trying $URL
 EOF
 
          rm -f perl-$PERL_VERSION.tar.$BZ2~ # just to be on the safe side
-         wget -O perl-$PERL_VERSION.tar.$BZ2~ "$URL" \
-            || curl >perl-$PERL_VERSION.tar.$BZ2~ "$URL" \
+         curl -f >perl-$PERL_VERSION.tar.$BZ2~ "$URL" \
+            || wget -O perl-$PERL_VERSION.tar.$BZ2~ "$URL" \
             || fatal "$URL: unable to download"
          rm -f perl-$PERL_VERSION.tar.$BZ2
          mv perl-$PERL_VERSION.tar.$BZ2~ perl-$PERL_VERSION.tar.$BZ2
@@ -241,6 +241,7 @@ EOF
                 -Uusemultiplicity \
                 -Uusesfio \
                 -Uuseshrplib \
+                -Uinstallusrbinperl \
                 -A ccflags=" $PERL_CCFLAGS" \
                 -Dcc="$PERL_CC" \
                 -Doptimize="$PERL_OPTIMIZE" \
@@ -1105,7 +1106,7 @@ for my $pm (@order) {
             } else {
                warn "WARNING: $pm{$pm}: PPI failed to parse this file\n";
             }
-         } elsif ($STRIP =~ /pod/i && $pm ne "Opcode.pm") { # opcode parses it's own pod
+         } elsif ($STRIP =~ /pod/i && $pm ne "Opcode.pm") { # opcode parses its own pod
             require Pod::Strip;
 
             my $stripper = Pod::Strip->new;
@@ -2726,7 +2727,7 @@ only might pay off.
 
 To simply include the whole unicode database, use:
 
-   --incglob '/unicore/*.pl'
+   --incglob '/unicore/**.pl'
 
 =item AnyEvent
 
@@ -2814,7 +2815,7 @@ putting the following fragment into a C<preconfigure> hook:
       done
    }
 
-This mostly gains space when linking staticaly, as the functions will
+This mostly gains space when linking statically, as the functions will
 likely not be linked in. The gain for dynamically-linked binaries is
 smaller.
 

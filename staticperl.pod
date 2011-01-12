@@ -1117,7 +1117,7 @@ only might pay off.
 
 To simply include the whole unicode database, use:
 
-   --incglob '/unicore/*.pl'
+   --incglob '/unicore/**.pl'
 
 =item AnyEvent
 
@@ -1205,7 +1205,7 @@ putting the following fragment into a C<preconfigure> hook:
       done
    }
 
-This mostly gains space when linking staticaly, as the functions will
+This mostly gains space when linking statically, as the functions will
 likely not be linked in. The gain for dynamically-linked binaries is
 smaller.
 

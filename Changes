@@ -3,6 +3,15 @@ Revision history for Perl extension App::Staticperl
 TODO: --ignore-env
 TODO: / at glob end == (.pm|/.*)?
 
+1.0   Mon Jan 10 15:13:19 CET 2011
+        - specify -Uinstallusrbinperl in configure to avoid creating
+          /usr/bin/perl.
+        - try to work around the totally broken /bin/sh on solaris
+          (only in the testsuite).
+	- use curl -f instead of just curl.
+        - prefer curl over wget again, as cpan seems to do so.
+        - clarify license.
+
 0.92  Wed Dec 22 02:09:19 CET 2010
 	- major rework of the PHASE 2 documentation section, hopefully
           it's now more clear, more useful, more sexy.

@@ -663,7 +663,7 @@ for my $pm (@order) {
             } else {
                warn "WARNING: $pm{$pm}: PPI failed to parse this file\n";
             }
-         } elsif ($STRIP =~ /pod/i && $pm ne "Opcode.pm") { # opcode parses it's own pod
+         } elsif ($STRIP =~ /pod/i && $pm ne "Opcode.pm") { # opcode parses its own pod
             require Pod::Strip;
 
             my $stripper = Pod::Strip->new;

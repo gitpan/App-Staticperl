@@ -10,6 +10,11 @@ END {
    system "rm -rf $PFX";
 }
 
+# the default shell on solaris doesn't even have
+# minimal bourne shell support :/
+$ENV{PATH}="/usr/ucb/bin:$ENV{PATH}"
+   if -d "/usr/ucb/bin";
+
 {
    open my $fh, ">", "$PFX/staticperlrc"
       or die "$PFX/staticperlrc: $!";

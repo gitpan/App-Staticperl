@@ -986,7 +986,7 @@ RECIPES / SPECIFIC MODULES
 
         To simply include the whole unicode database, use:
 
-           --incglob '/unicore/*.pl'
+           --incglob '/unicore/**.pl'
 
     AnyEvent
         AnyEvent needs a backend implementation that it will load in a
@@ -1064,7 +1064,7 @@ RECIPES / SPECIFIC MODULES
               done
            }
 
-        This mostly gains space when linking staticaly, as the functions
+        This mostly gains space when linking statically, as the functions
         will likely not be linked in. The gain for dynamically-linked
         binaries is smaller.
 
