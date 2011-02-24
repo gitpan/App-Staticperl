@@ -9,10 +9,10 @@ EMAIL="read the documentation <rtfm@example.org>"
 
 # perl build variables
 MAKE=make
-PERL_VERSION=5.12.2 # 5.8.9 is also a good choice
+PERL_VERSION=5.12.3 # 5.8.9 is also a good choice
 PERL_CC=cc
 PERL_CONFIGURE="" # additional Configure arguments
-PERL_CCFLAGS="-DPERL_DISABLE_PMC -DPERL_ARENA_SIZE=65536 -D_GNU_SOURCE -DNDEBUG"
+PERL_CCFLAGS="-g -DPERL_DISABLE_PMC -DPERL_ARENA_SIZE=16376 -DNO_PERL_MALLOC_ENV -D_GNU_SOURCE -DNDEBUG"
 PERL_OPTIMIZE="-Os -ffunction-sections -fdata-sections -finline-limit=8 -ffast-math"
 
 ARCH="$(uname -m)"
@@ -73,7 +73,7 @@ LC_ALL=C; export LC_ALL # just to be on the safe side
 
 # set version in a way that Makefile.PL can extract
 VERSION=VERSION; eval \
-$VERSION="1.0"
+$VERSION="1.1"
 
 BZ2=bz2
 BZIP2=bzip2
@@ -167,8 +167,8 @@ EOF
 
       mkdir -p unpack
       rm -rf unpack/perl-$PERL_VERSION
-      $BZIP2 -d <perl-$PERL_VERSION.tar.bz2 | tar xfC - unpack \
-         || fatal "perl-$PERL_VERSION.tar.bz2: error during unpacking"
+      $BZIP2 -d <perl-$PERL_VERSION.tar.$BZ2 | tar xfC - unpack \
+         || fatal "perl-$PERL_VERSION.tar.$BZ2: error during unpacking"
       chmod -R u+w unpack/perl-$PERL_VERSION
       mv unpack/perl-$PERL_VERSION perl-$PERL_VERSION
       rmdir -p unpack
@@ -446,14 +446,15 @@ catmkbundle() {
 #############################################################################
 # cannot load modules till after the tracer BEGIN block
 
-our $VERBOSE  = 1;
-our $STRIP    = "pod"; # none, pod or ppi
-our $UNISTRIP = 1; # always on, try to strip unicore swash data
-our $PERL     = 0;
+our $VERBOSE    = 1;
+our $STRIP      = "pod"; # none, pod or ppi
+our $UNISTRIP   = 1; # always on, try to strip unicore swash data
+our $PERL       = 0;
 our $APP;
-our $VERIFY   = 0;
-our $STATIC   = 0;
-our $PACKLIST = 0;
+our $VERIFY     = 0;
+our $STATIC     = 0;
+our $PACKLIST   = 0;
+our $IGNORE_ENV = 0;
 
 our $OPTIMISE_SIZE = 0; # optimise for raw file size instead of for compression?
 
@@ -510,6 +511,8 @@ BEGIN {
       close $TRACER_R;
       close $TRACER_W;
 
+      my $pkg = "pkg000000";
+
       unshift @INC, sub {
          my $dir = find_incdir $_[1]
             or return;
@@ -525,7 +528,18 @@ BEGIN {
       while (<$R_TRACER>) {
          if (/use (.*)$/) {
             my $mod = $1;
-            eval "require $mod";
+            my $eval;
+
+            if ($mod =~ /^'.*'$/ or $mod =~ /^".*"$/) {
+               $eval = "require $mod";
+            } elsif ($mod =~ y%/.%%) {
+               $eval = "require q\x00$mod\x00";
+            } else {
+               my $pkg = ++$pkg;
+               $eval = "{ package $pkg; use $mod; }";
+            }
+
+            eval $eval;
             warn "ERROR: $@ (while loading '$mod')\n"
                if $@;
          } elsif (/eval (.*)$/) {
@@ -705,15 +719,15 @@ sub get_inctrees {
 #############################################################################
 
 sub cmd_boot {
-   $pm{"//boot"} = $_[0];
+   $pm{"&&boot"} = $_[0];
 }
 
 sub cmd_add {
-   $_[0] =~ /^(.*)(?:\s+(\S+))$/
+   $_[0] =~ /^(.*?)(?:\s+(\S+))?$/
       or die "$_[0]: cannot parse";
 
    my $file = $1;
-   my $as   = defined $2 ? $2 : "/$1";
+   my $as   = defined $2 ? $2 : $1;
 
    $pm{$as} = $file;
    $pmbin{$as} = 1 if $_[1];
@@ -768,12 +782,14 @@ use Getopt::Long;
 
 sub parse_argv {
    GetOptions
-      "strip=s"       => \$STRIP,
-      "cache=s"       => \$CACHE, # internal option
-      "verbose|v"     => sub { ++$VERBOSE },
-      "quiet|q"       => sub { --$VERBOSE },
       "perl"          => \$PERL,
       "app=s"         => \$APP,
+
+      "verbose|v"     => sub { ++$VERBOSE },
+      "quiet|q"       => sub { --$VERBOSE },
+
+      "strip=s"       => \$STRIP,
+      "cache=s"       => \$CACHE, # internal option
       "eval|e=s"      => sub { trace_eval    $_[1] },
       "use|M=s"       => sub { trace_module  $_[1] },
       "boot=s"        => sub { cmd_boot      $_[1] },
@@ -782,9 +798,12 @@ sub parse_argv {
       "incglob=s"     => sub { cmd_incglob   $_[1] },
       "include|i=s"   => sub { cmd_include   $_[1], 1 },
       "exclude|x=s"   => sub { cmd_include   $_[1], 0 },
-      "static!"       => \$STATIC,
       "usepacklists!" => \$PACKLIST,
+
+      "static!"       => \$STATIC,
       "staticlib=s"   => sub { cmd_staticlib $_[1] },
+      "ignore-env"    => \$IGNORE_ENV,
+
       "<>"            => sub { cmd_file      $_[0] },
       or exit 1;
 }
@@ -1168,7 +1187,7 @@ print "generating $PREFIX.h... "
 /* public API */
 EXTERN_C PerlInterpreter *staticperl;
 EXTERN_C void staticperl_xs_init (pTHX);
-EXTERN_C void staticperl_init (void);
+EXTERN_C void staticperl_init (XSINIT_t xs_init); /* argument can be 0 */
 EXTERN_C void staticperl_cleanup (void);
 
 EOF
@@ -1247,8 +1266,8 @@ BEGIN {
 }
 ';
 
-$bootstrap .= "require '//boot';"
-   if exists $pm{"//boot"};
+$bootstrap .= "require '&&boot';"
+   if exists $pm{"&&boot"};
 
 $bootstrap =~ s/\s+/ /g;
 $bootstrap =~ s/(\W) /$1/g;
@@ -1378,11 +1397,30 @@ for (@static_ext) {
 
 print $fh <<EOF;
   Perl_av_create_and_unshift_one (&PL_preambleav, newSVpv (bootstrap, sizeof (bootstrap) - 1));
+
+  if (PL_oldname)
+    ((XSINIT_t)PL_oldname)(aTHX);
 }
 EOF
 
 #############################################################################
 # optional perl_init/perl_destroy
+
+if ($IGNORE_ENV) {
+   $IGNORE_ENV = <<EOF;
+  unsetenv ("PERL_UNICODE");
+  unsetenv ("PERL_HASH_SEED_DEBUG");
+  unsetenv ("PERL_DESTRUCT_LEVEL");
+  unsetenv ("PERL_SIGNALS");
+  unsetenv ("PERL_DEBUG_MSTATS");
+  unsetenv ("PERL5OPT");
+  unsetenv ("PERLIO_DEBUG");
+  unsetenv ("PERLIO");
+  unsetenv ("PERL_HASH_SEED");
+EOF
+} else {
+   $IGNORE_ENV = "";
+}
 
 if ($APP) {
    print $fh <<EOF;
@@ -1391,21 +1429,26 @@ int
 main (int argc, char *argv [])
 {
   extern char **environ;
-  int exitstatus;
+  int i, exitstatus;
+  char **args = malloc ((argc + 3) * sizeof (const char *));
 
-  static char *args[] = {
-    "staticperl",
-    "-e",
-    "0"
-  };
+  args [0] = argv [0];
+  args [1] = "-e";
+  args [2] = "0";
+  args [3] = "--";
 
+  for (i = 1; i < argc; ++i)
+    args [i + 3] = argv [i];
+
+$IGNORE_ENV
   PERL_SYS_INIT3 (&argc, &argv, &environ);
   staticperl = perl_alloc ();
   perl_construct (staticperl);
 
   PL_exit_flags |= PERL_EXIT_DESTRUCT_END;
 
-  exitstatus = perl_parse (staticperl, staticperl_xs_init, sizeof (args) / sizeof (*args), args, environ);
+  exitstatus = perl_parse (staticperl, staticperl_xs_init, argc + 3, args, environ);
+  free (args);
   if (!exitstatus)
     perl_run (staticperl);
 
@@ -1425,6 +1468,7 @@ main (int argc, char *argv [])
   extern char **environ;
   int exitstatus;
 
+$IGNORE_ENV
   PERL_SYS_INIT3 (&argc, &argv, &environ);
   staticperl = perl_alloc ();
   perl_construct (staticperl);
@@ -1446,23 +1490,25 @@ EOF
    print $fh <<EOF;
 
 EXTERN_C void
-staticperl_init (void)
+staticperl_init (XSINIT_t xs_init)
 {
-  extern char **environ;
-  int argc = sizeof (args) / sizeof (args [0]);
-  char **argv = args;
-
   static char *args[] = {
     "staticperl",
     "-e",
     "0"
   };
 
+  extern char **environ;
+  int argc = sizeof (args) / sizeof (args [0]);
+  char **argv = args;
+
+$IGNORE_ENV
   PERL_SYS_INIT3 (&argc, &argv, &environ);
   staticperl = perl_alloc ();
   perl_construct (staticperl);
   PL_origalen = 1;
   PL_exit_flags |= PERL_EXIT_DESTRUCT_END;
+  PL_oldname = (char *)xs_init;
   perl_parse (staticperl, staticperl_xs_init, argc, argv, environ);
 
   perl_run (staticperl);
@@ -1632,7 +1678,7 @@ Typical Examples:
 
    staticperl install   # fetch, configure, build and install perl
    staticperl cpan      # run interactive cpan shell
-   staticperl mkperl -M '"Config_heavy.pl"' # build a perl that supports -V
+   staticperl mkperl -MConfig_heavy.pl # build a perl that supports -V
    staticperl mkperl -MAnyEvent::Impl::Perl -MAnyEvent::HTTPD -MURI -MURI::http
                         # build a perl with the above modules linked in
    staticperl mkapp myapp --boot mainprog mymodules
@@ -1751,7 +1797,7 @@ with creating binaries and bundle files.
 =head2 PHASE 1 COMMANDS: INSTALLING PERL
 
 The most important command is F<install>, which does basically
-everything. The default is to download and install perl 5.12.2 and a few
+everything. The default is to download and install perl 5.12.3 and a few
 modules required by F<staticperl> itself, but all this can (and should) be
 changed - see L<CONFIGURATION>, below.
 
@@ -1864,7 +1910,7 @@ in this distribution):
    staticperl instcpan AnyEvent::HTTPD
 
    # now build the perl
-   staticperl mkperl -M'"Config_heavy.pl"' -MAnyEvent::Impl::Perl \
+   staticperl mkperl -MConfig_heavy.pl -MAnyEvent::Impl::Perl \
                      -MAnyEvent::HTTPD -MURI::http \
                      --add 'eg/httpd httpd.pm'
 
@@ -1993,31 +2039,62 @@ earlier C<--use> options to have been executed).
 
 =item C<--use> F<module> | C<-M>F<module>
 
-Include the named module and trace direct dependencies. This is done by
-C<require>'ing the module in a subprocess and tracing which other modules
-and files it actually loads.
+Include the named module or perl library and trace direct
+dependencies. This is done by loading the module in a subprocess and
+tracing which other modules and files it actually loads.
 
 Example: include AnyEvent and AnyEvent::Impl::Perl.
 
    staticperl mkbundle --use AnyEvent --use AnyEvent::Impl::Perl
 
-Sometimes you want to load old-style "perl libraries" (F<.pl> files),
-or maybe other weirdly named files. To do that, you need to quote
-the name in single or double quotes (this is because F<staticperl>
-I<literally> just adds the string after the C<require> - which acts
-different when confronted with quoted vs. unquoted strings). When given on
-the command line, you probably need to quote once more to avoid your shell
-interpreting it. Common cases that need this are F<Config_heavy.pl> and
-F<utf8_heavy.pl>.
+Sometimes you want to load old-style "perl libraries" (F<.pl> files), or
+maybe other weirdly named files. To support this, the C<--use> option
+actually tries to do what you mean, depending on the string you specify:
+
+=over 4
+
+=item a possibly valid module name, e.g. F<common::sense>, F<Carp>,
+F<Coro::Mysql>.
+
+If the string contains no quotes, no F</> and no F<.>, then C<--use>
+assumes that it is a normal module name. It will create a new package and
+evaluate a C<use module> in it, i.e. it will load the package and do a
+default import.
+
+The import step is done because many modules trigger more dependencies
+when something is imported than without.
+
+=item anything that contains F</> or F<.> characters,
+e.g. F<utf8_heavy.pl>, F<Module/private/data.pl>.
+
+The string will be quoted and passed to require, as if you used C<require
+$module>. Nothing will be imported.
+
+=item "path" or 'path', e.g. C<"utf8_heavy.pl">.
+
+If you enclose the name into single or double quotes, then the quotes will
+be removed and the resulting string will be passed to require. This syntax
+is form compatibility with older versions of staticperl and should not be
+used anymore.
+
+=back
+
+Example: C<use> AnyEvent::Socket, once using C<use> (importing the
+symbols), and once via C<require>, not importing any symbols. The first
+form is preferred as many modules load some extra dependencies when asked
+to export symbols.
+
+   staticperl mkbundle -MAnyEvent::Socket     # use + import
+   staticperl mkbundle -MAnyEvent/Socket.pm   # require only
 
 Example: include the required files for F<perl -V> to work in all its
-glory (F<Config.pm> is included automatically by this).
+glory (F<Config.pm> is included automatically by the dependency tracker).
 
-   # bourne shell
-   staticperl mkbundle --use '"Config_heavy.pl"'
+   # shell command
+   staticperl mkbundle -MConfig_heavy.pl
 
    # bundle specification file
-   use "Config_heavy.pl"
+   use Config_heavy.pl
 
 The C<-M>module syntax is included as a convenience that might be easier
 to remember than C<--use> - it's the same switch as perl itself uses
@@ -2032,9 +2109,9 @@ that case, you can use C<--eval> to execute some perl snippet or set some
 variables or whatever you need. All files C<require>'d or C<use>'d while
 executing the snippet are included in the final bundle.
 
-Keep in mind that F<mkbundle> will only C<require> the modules named
-by the C<--use> option, so do not expect the symbols from modules you
-C<--use>'d earlier on the command line to be available.
+Keep in mind that F<mkbundle> will not import any symbols from the modules
+named by the C<--use> option, so do not expect the symbols from modules
+you C<--use>'d earlier on the command line to be available.
 
 Example: force L<AnyEvent> to detect a backend and therefore include it
 in the final bundle.
@@ -2079,9 +2156,9 @@ and other modules.
 =item C<--add> F<file> | C<--add> "F<file> alias"
 
 Adds the given (perl) file into the bundle (and optionally call it
-"alias"). The F<file> is either an absolute path or a path relative to
-the current directory. If an alias is specified, then this is the name it
-will use for C<@INC> searches, otherwise the F<file> will be used as the
+"alias"). The F<file> is either an absolute path or a path relative to the
+current directory. If an alias is specified, then this is the name it will
+use for C<@INC> searches, otherwise the path F<file> will be used as the
 internal name.
 
 This switch is used to include extra files into the bundle.
@@ -2090,6 +2167,14 @@ Example: embed the file F<httpd> in the current directory as F<httpd.pm>
 when creating the bundle.
 
    staticperl mkperl --add "httpd httpd.pm"
+
+   # can be accessed via "use httpd"
+
+Example: add a file F<initcode> from the current directory.
+
+   staticperl mkperl --add 'initcode &initcode'
+
+   # can be accessed via "do '&initcode'"
 
 Example: add local files as extra modules in the bundle.
 
@@ -2109,9 +2194,9 @@ Just like C<--add>, except that it treats the file as binary and adds it
 without any postprocessing (perl files might get stripped to reduce their
 size).
 
-You should probably add a C</> prefix to avoid clashing with embedded perl
-files (whose paths do not start with C</>), and/or use a special directory
-prefix, such as C</res/name>.
+If you specify an alias you should probably add a C<&> prefix to avoid
+clashing with embedded perl files (whose paths never start with C<&>),
+and/or use a special directory prefix, such as C<&res/name>.
 
 You can later get a copy of these files by calling C<staticperl::find
 "alias">.
@@ -2276,7 +2361,7 @@ binary created by this option will not try to act as a perl interpreter -
 instead it will simply initialise the perl interpreter, clean it up and
 exit.
 
-This means that, by default, it will do nothing but burna few CPU cycles
+This means that, by default, it will do nothing but burn a few CPU cycles
 - for it to do something useful you I<must> add some boot code, e.g. with
 the C<--boot> option.
 
@@ -2284,6 +2369,29 @@ Example: create a standalone perl binary called F<./myexe> that will
 execute F<appfile> when it is started.
 
    staticperl mkbundle --app myexe --boot appfile
+
+=item C<--ignore-env>
+
+Generates extra code to unset some environment variables before
+initialising/running perl. Perl supports a lot of environment variables
+that might alter execution in ways that might be undesirablre for
+standalone applications, and this option removes those known to cause
+trouble.
+
+Specifically, these are removed:
+
+C<PERL_HASH_SEED_DEBUG> and C<PERL_DEBUG_MSTATS> can cause underaible
+output, C<PERL5OPT>, C<PERL_DESTRUCT_LEVEL>, C<PERL_HASH_SEED> and
+C<PERL_SIGNALS> can alter execution significantly, and C<PERL_UNICODE>,
+C<PERLIO_DEBUG> and C<PERLIO> can affect input and output.
+
+The variables C<PERL_LIB> and C<PERL5_LIB> are always ignored because the
+startup code used by F<staticperl> overrides C<@INC> in all cases.
+
+This option will not make your program more secure (unless you are
+running with elevated privileges), but it will reduce the surprise effect
+when a user has these environment variables set and doesn't expect your
+standalone program to act like a perl interpreter.
 
 =item C<--static>
 
@@ -2429,9 +2537,9 @@ installation, you can set any environment variable you want - some modules
 
 =item C<PERL_VERSION>
 
-The perl version to install - default is currently C<5.12.2>, but C<5.8.9>
-is also a good choice (5.8.9 is much smaller than 5.12.2, while 5.10.1 is
-about as big as 5.12.2).
+The perl version to install - default is currently C<5.12.3>, but C<5.8.9>
+is also a good choice (5.8.9 is much smaller than 5.12.3, while 5.10.1 is
+about as big as 5.12.3).
 
 =item C<PERL_PREFIX>
 
@@ -2565,7 +2673,7 @@ by bundle.c, and also exposes the perl headers to the application.
 
 =over 4
 
-=item staticperl_init ()
+=item staticperl_init (xs_init = 0)
 
 Initialises the perl interpreter. You can use the normal perl functions
 after calling this function, for example, to define extra functions or
@@ -2582,10 +2690,32 @@ program function:
    static void
    run_myapp(void)
    {
-      staticperl_init ();
+      staticperl_init (0);
       newXSproto ("myapp::xsfunction", xsfunction, __FILE__, "$$;$");
       eval_pv ("require myapp::main", 1); // executes "myapp/main.pm"
    }
+
+When your bootcode already wants to access some XS functions at
+compiletime, then you need to supply an C<xs_init> function pointer that
+is called as soon as perl is initialised enough to define XS functions,
+but before the preamble code is executed:
+
+   static void
+   xs_init (pTHX)
+   {
+     newXSproto ("myapp::xsfunction", xsfunction, __FILE__, "$$;$");
+   }
+
+   static void
+   run_myapp(void)
+   {
+      staticperl_init (xs_init);
+   }
+
+=item staticperl_cleanup ()
+
+In the unlikely case that you want to destroy the perl interpreter, here
+is the corresponding function.
 
 =item staticperl_xs_init (pTHX)
 
@@ -2594,12 +2724,8 @@ which case you do not want to use C<staticperl_init> but call them on your
 own.
 
 Then you need this function - either pass it directly as the C<xs_init>
-function to C<perl_parse>, or call it from your own C<xs_init> function.
-
-=item staticperl_cleanup ()
-
-In the unlikely case that you want to destroy the perl interpreter, here
-is the corresponding function.
+function to C<perl_parse>, or call it as one of the first things from your
+own C<xs_init> function.
 
 =item PerlInterpreter *staticperl
 
@@ -2716,7 +2842,7 @@ Some functionality in the utf8 module, such as swash handling (used
 for unicode character ranges in regexes) is implemented in the
 C<"utf8_heavy.pl"> library:
 
-   -M'"utf8_heavy.pl"'
+   -Mutf8_heavy.pl
 
 Many Unicode properties in turn are defined in separate modules,
 such as C<"unicore/Heavy.pl"> and more specific data tables such as

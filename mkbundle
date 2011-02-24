@@ -3,14 +3,15 @@
 #############################################################################
 # cannot load modules till after the tracer BEGIN block
 
-our $VERBOSE  = 1;
-our $STRIP    = "pod"; # none, pod or ppi
-our $UNISTRIP = 1; # always on, try to strip unicore swash data
-our $PERL     = 0;
+our $VERBOSE    = 1;
+our $STRIP      = "pod"; # none, pod or ppi
+our $UNISTRIP   = 1; # always on, try to strip unicore swash data
+our $PERL       = 0;
 our $APP;
-our $VERIFY   = 0;
-our $STATIC   = 0;
-our $PACKLIST = 0;
+our $VERIFY     = 0;
+our $STATIC     = 0;
+our $PACKLIST   = 0;
+our $IGNORE_ENV = 0;
 
 our $OPTIMISE_SIZE = 0; # optimise for raw file size instead of for compression?
 
@@ -67,6 +68,8 @@ BEGIN {
       close $TRACER_R;
       close $TRACER_W;
 
+      my $pkg = "pkg000000";
+
       unshift @INC, sub {
          my $dir = find_incdir $_[1]
             or return;
@@ -82,7 +85,18 @@ BEGIN {
       while (<$R_TRACER>) {
          if (/use (.*)$/) {
             my $mod = $1;
-            eval "require $mod";
+            my $eval;
+
+            if ($mod =~ /^'.*'$/ or $mod =~ /^".*"$/) {
+               $eval = "require $mod";
+            } elsif ($mod =~ y%/.%%) {
+               $eval = "require q\x00$mod\x00";
+            } else {
+               my $pkg = ++$pkg;
+               $eval = "{ package $pkg; use $mod; }";
+            }
+
+            eval $eval;
             warn "ERROR: $@ (while loading '$mod')\n"
                if $@;
          } elsif (/eval (.*)$/) {
@@ -262,15 +276,15 @@ sub get_inctrees {
 #############################################################################
 
 sub cmd_boot {
-   $pm{"//boot"} = $_[0];
+   $pm{"&&boot"} = $_[0];
 }
 
 sub cmd_add {
-   $_[0] =~ /^(.*)(?:\s+(\S+))$/
+   $_[0] =~ /^(.*?)(?:\s+(\S+))?$/
       or die "$_[0]: cannot parse";
 
    my $file = $1;
-   my $as   = defined $2 ? $2 : "/$1";
+   my $as   = defined $2 ? $2 : $1;
 
    $pm{$as} = $file;
    $pmbin{$as} = 1 if $_[1];
@@ -325,12 +339,14 @@ use Getopt::Long;
 
 sub parse_argv {
    GetOptions
-      "strip=s"       => \$STRIP,
-      "cache=s"       => \$CACHE, # internal option
-      "verbose|v"     => sub { ++$VERBOSE },
-      "quiet|q"       => sub { --$VERBOSE },
       "perl"          => \$PERL,
       "app=s"         => \$APP,
+
+      "verbose|v"     => sub { ++$VERBOSE },
+      "quiet|q"       => sub { --$VERBOSE },
+
+      "strip=s"       => \$STRIP,
+      "cache=s"       => \$CACHE, # internal option
       "eval|e=s"      => sub { trace_eval    $_[1] },
       "use|M=s"       => sub { trace_module  $_[1] },
       "boot=s"        => sub { cmd_boot      $_[1] },
@@ -339,9 +355,12 @@ sub parse_argv {
       "incglob=s"     => sub { cmd_incglob   $_[1] },
       "include|i=s"   => sub { cmd_include   $_[1], 1 },
       "exclude|x=s"   => sub { cmd_include   $_[1], 0 },
-      "static!"       => \$STATIC,
       "usepacklists!" => \$PACKLIST,
+
+      "static!"       => \$STATIC,
       "staticlib=s"   => sub { cmd_staticlib $_[1] },
+      "ignore-env"    => \$IGNORE_ENV,
+
       "<>"            => sub { cmd_file      $_[0] },
       or exit 1;
 }
@@ -725,7 +744,7 @@ print "generating $PREFIX.h... "
 /* public API */
 EXTERN_C PerlInterpreter *staticperl;
 EXTERN_C void staticperl_xs_init (pTHX);
-EXTERN_C void staticperl_init (void);
+EXTERN_C void staticperl_init (XSINIT_t xs_init); /* argument can be 0 */
 EXTERN_C void staticperl_cleanup (void);
 
 EOF
@@ -804,8 +823,8 @@ BEGIN {
 }
 ';
 
-$bootstrap .= "require '//boot';"
-   if exists $pm{"//boot"};
+$bootstrap .= "require '&&boot';"
+   if exists $pm{"&&boot"};
 
 $bootstrap =~ s/\s+/ /g;
 $bootstrap =~ s/(\W) /$1/g;
@@ -935,11 +954,30 @@ for (@static_ext) {
 
 print $fh <<EOF;
   Perl_av_create_and_unshift_one (&PL_preambleav, newSVpv (bootstrap, sizeof (bootstrap) - 1));
+
+  if (PL_oldname)
+    ((XSINIT_t)PL_oldname)(aTHX);
 }
 EOF
 
 #############################################################################
 # optional perl_init/perl_destroy
+
+if ($IGNORE_ENV) {
+   $IGNORE_ENV = <<EOF;
+  unsetenv ("PERL_UNICODE");
+  unsetenv ("PERL_HASH_SEED_DEBUG");
+  unsetenv ("PERL_DESTRUCT_LEVEL");
+  unsetenv ("PERL_SIGNALS");
+  unsetenv ("PERL_DEBUG_MSTATS");
+  unsetenv ("PERL5OPT");
+  unsetenv ("PERLIO_DEBUG");
+  unsetenv ("PERLIO");
+  unsetenv ("PERL_HASH_SEED");
+EOF
+} else {
+   $IGNORE_ENV = "";
+}
 
 if ($APP) {
    print $fh <<EOF;
@@ -948,21 +986,26 @@ int
 main (int argc, char *argv [])
 {
   extern char **environ;
-  int exitstatus;
+  int i, exitstatus;
+  char **args = malloc ((argc + 3) * sizeof (const char *));
 
-  static char *args[] = {
-    "staticperl",
-    "-e",
-    "0"
-  };
+  args [0] = argv [0];
+  args [1] = "-e";
+  args [2] = "0";
+  args [3] = "--";
 
+  for (i = 1; i < argc; ++i)
+    args [i + 3] = argv [i];
+
+$IGNORE_ENV
   PERL_SYS_INIT3 (&argc, &argv, &environ);
   staticperl = perl_alloc ();
   perl_construct (staticperl);
 
   PL_exit_flags |= PERL_EXIT_DESTRUCT_END;
 
-  exitstatus = perl_parse (staticperl, staticperl_xs_init, sizeof (args) / sizeof (*args), args, environ);
+  exitstatus = perl_parse (staticperl, staticperl_xs_init, argc + 3, args, environ);
+  free (args);
   if (!exitstatus)
     perl_run (staticperl);
 
@@ -982,6 +1025,7 @@ main (int argc, char *argv [])
   extern char **environ;
   int exitstatus;
 
+$IGNORE_ENV
   PERL_SYS_INIT3 (&argc, &argv, &environ);
   staticperl = perl_alloc ();
   perl_construct (staticperl);
@@ -1003,23 +1047,25 @@ EOF
    print $fh <<EOF;
 
 EXTERN_C void
-staticperl_init (void)
+staticperl_init (XSINIT_t xs_init)
 {
-  extern char **environ;
-  int argc = sizeof (args) / sizeof (args [0]);
-  char **argv = args;
-
   static char *args[] = {
     "staticperl",
     "-e",
     "0"
   };
 
+  extern char **environ;
+  int argc = sizeof (args) / sizeof (args [0]);
+  char **argv = args;
+
+$IGNORE_ENV
   PERL_SYS_INIT3 (&argc, &argv, &environ);
   staticperl = perl_alloc ();
   perl_construct (staticperl);
   PL_origalen = 1;
   PL_exit_flags |= PERL_EXIT_DESTRUCT_END;
+  PL_oldname = (char *)xs_init;
   perl_parse (staticperl, staticperl_xs_init, argc, argv, environ);
 
   perl_run (staticperl);

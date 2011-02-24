@@ -19,7 +19,7 @@ $ENV{PATH}="/usr/ucb/bin:$ENV{PATH}"
    open my $fh, ">", "$PFX/staticperlrc"
       or die "$PFX/staticperlrc: $!";
    print $fh <<EOF;
-PERL_VERSION=5.12.2
+PERL_VERSION=5.12.3
 STATICPERL=$PFX
 PERL_CCFLAGS=
 PERL_OPTIMIZE="-O0 -g0"
@@ -33,10 +33,11 @@ sub tryrun {
    my ($test, $command) = @_;
 
    if (my $exit = system "exec >$PFX/output 2>&1; $command") {
+      my $output = do { local *FH; open FH, "<$PFX/output" or die "$PFX/output: $!"; local $/; <FH> };
+      $output = substr $output, 0, 30000; # "output truncated after..." I wish they would document these things
       printf STDERR
              "\n\n# FAILED #%d exit status 0x%04x (%s)\n\n# OUTPUT:\n%s\n\n",
-             $test, $exit, $command,
-             do { local *FH; open FH, "<$PFX/output" or die "$PFX/output: $!"; local $/; <FH> };
+             $test, $exit, $command, $output;
       print "not ok $test\n";
    } else {
       print "ok $test\n";

@@ -1,7 +1,20 @@
 Revision history for Perl extension App::Staticperl
 
-TODO: --ignore-env
-TODO: / at glob end == (.pm|/.*)?
+1.1   Thu Feb 24 07:20:22 CET 2011
+	- use a better -M syntax.
+	- the one-arg form of add/binadd was broken.
+	- --add and --binadd now use the file as alias if the alias is missing.
+	- embeddable bundle files were broken because "args"
+          was used before defined.
+	- mkapp now actually passes arguments to the boot script.
+	- more cpan-testers workarounds :/.
+        - implement an ignore-env option for mkbundle.
+        - use, not just require, modules when tracing their dependencies.
+        - support an optional xs_init argument to staticperl_init, which
+          can be 0 (and is then ignored).
+        - reduce PERL_ARENA_SIZE to something more reasonable for perl 5.12.
+        - use perl 5.12.3 by default.
+        - enable debug symbols by default (but not the dreaded -DDEBUGGING).
 
 1.0   Mon Jan 10 15:13:19 CET 2011
         - specify -Uinstallusrbinperl in configure to avoid creating

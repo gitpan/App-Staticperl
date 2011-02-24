@@ -9,10 +9,10 @@ EMAIL="read the documentation <rtfm@example.org>"
 
 # perl build variables
 MAKE=make
-PERL_VERSION=5.12.2 # 5.8.9 is also a good choice
+PERL_VERSION=5.12.3 # 5.8.9 is also a good choice
 PERL_CC=cc
 PERL_CONFIGURE="" # additional Configure arguments
-PERL_CCFLAGS="-DPERL_DISABLE_PMC -DPERL_ARENA_SIZE=65536 -D_GNU_SOURCE -DNDEBUG"
+PERL_CCFLAGS="-g -DPERL_DISABLE_PMC -DPERL_ARENA_SIZE=16376 -DNO_PERL_MALLOC_ENV -D_GNU_SOURCE -DNDEBUG"
 PERL_OPTIMIZE="-Os -ffunction-sections -fdata-sections -finline-limit=8 -ffast-math"
 
 ARCH="$(uname -m)"
@@ -73,7 +73,7 @@ LC_ALL=C; export LC_ALL # just to be on the safe side
 
 # set version in a way that Makefile.PL can extract
 VERSION=VERSION; eval \
-$VERSION="1.0"
+$VERSION="1.1"
 
 BZ2=bz2
 BZIP2=bzip2
@@ -167,8 +167,8 @@ EOF
 
       mkdir -p unpack
       rm -rf unpack/perl-$PERL_VERSION
-      $BZIP2 -d <perl-$PERL_VERSION.tar.bz2 | tar xfC - unpack \
-         || fatal "perl-$PERL_VERSION.tar.bz2: error during unpacking"
+      $BZIP2 -d <perl-$PERL_VERSION.tar.$BZ2 | tar xfC - unpack \
+         || fatal "perl-$PERL_VERSION.tar.$BZ2: error during unpacking"
       chmod -R u+w unpack/perl-$PERL_VERSION
       mv unpack/perl-$PERL_VERSION perl-$PERL_VERSION
       rmdir -p unpack
