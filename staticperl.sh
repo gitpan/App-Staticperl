@@ -73,7 +73,7 @@ LC_ALL=C; export LC_ALL # just to be on the safe side
 
 # set version in a way that Makefile.PL can extract
 VERSION=VERSION; eval \
-$VERSION="1.1"
+$VERSION="1.11"
 
 BZ2=bz2
 BZIP2=bzip2

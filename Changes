@@ -1,5 +1,10 @@
 Revision history for Perl extension App::Staticperl
 
+1.11  Tue Mar  8 18:37:00 CET 2011
+	- no longer create bundle variable names from md5(data),
+          as it is no longer useful.
+        - fix output shortening in testsuite.
+
 1.1   Thu Feb 24 07:20:22 CET 2011
 	- use a better -M syntax.
 	- the one-arg form of add/binadd was broken.

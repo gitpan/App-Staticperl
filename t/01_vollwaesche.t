@@ -34,7 +34,7 @@ sub tryrun {
 
    if (my $exit = system "exec >$PFX/output 2>&1; $command") {
       my $output = do { local *FH; open FH, "<$PFX/output" or die "$PFX/output: $!"; local $/; <FH> };
-      $output = substr $output, 0, 30000; # "output truncated after..." I wish they would document these things
+      $output = substr $output, -30000 if 30000 < length $output; # "output truncated after..." I wish they would document these things
       printf STDERR
              "\n\n# FAILED #%d exit status 0x%04x (%s)\n\n# OUTPUT:\n%s\n\n",
              $test, $exit, $command, $output;

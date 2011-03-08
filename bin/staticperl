@@ -73,7 +73,7 @@ LC_ALL=C; export LC_ALL # just to be on the safe side
 
 # set version in a way that Makefile.PL can extract
 VERSION=VERSION; eval \
-$VERSION="1.1"
+$VERSION="1.11"
 
 BZ2=bz2
 BZIP2=bzip2
@@ -1165,7 +1165,7 @@ for my $pm (@order) {
 length $data < 2**25
    or die "ERROR: bundle too large (only 32MB supported)\n";
 
-my $varpfx = "bundle_" . substr +(Digest::MD5::md5_hex $data), 0, 16;
+my $varpfx = "bundle";
 
 #############################################################################
 # output
@@ -1178,7 +1178,7 @@ print "generating $PREFIX.h... "
       or die "$PREFIX.h: $!\n";
 
    print $fh <<EOF;
-/* do not edit, automatically created by mkstaticbundle */
+/* do not edit, automatically created by staticperl */
 
 #include <EXTERN.h>
 #include <perl.h>
@@ -1206,7 +1206,7 @@ open my $fh, ">", "$PREFIX.c"
    or die "$PREFIX.c: $!\n";
 
 print $fh <<EOF;
-/* do not edit, automatically created by mkstaticbundle */
+/* do not edit, automatically created by staticperl */
 
 #include "bundle.h"
 
