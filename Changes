@@ -1,5 +1,14 @@
 Revision history for Perl extension App::Staticperl
 
+1.2   Mon Mar 14 00:11:15 CET 2011
+        - patch CPAN::HandleConfig as there seems to be no other way to
+          keep it from clobbering the users MyConfig.pm accidentally.
+        - call cpan internally in a way so it picks up only our MyConfig.pm,
+          for extra safety and the initial calls before patching.
+        - set default cpan "installer" to EUMM, and MB is too broken
+          (it fails to build extensions statically).
+	- use "tar x" only to accomodate irix (and possibly other systems).
+
 1.11  Tue Mar  8 18:37:00 CET 2011
 	- no longer create bundle variable names from md5(data),
           as it is no longer useful.

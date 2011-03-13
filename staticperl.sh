@@ -73,7 +73,7 @@ LC_ALL=C; export LC_ALL # just to be on the safe side
 
 # set version in a way that Makefile.PL can extract
 VERSION=VERSION; eval \
-$VERSION="1.11"
+$VERSION="1.2"
 
 BZ2=bz2
 BZIP2=bzip2
@@ -167,7 +167,7 @@ EOF
 
       mkdir -p unpack
       rm -rf unpack/perl-$PERL_VERSION
-      $BZIP2 -d <perl-$PERL_VERSION.tar.$BZ2 | tar xfC - unpack \
+      $BZIP2 -d <perl-$PERL_VERSION.tar.$BZ2 | ( cd unpack && tar x ) \
          || fatal "perl-$PERL_VERSION.tar.$BZ2: error during unpacking"
       chmod -R u+w unpack/perl-$PERL_VERSION
       mv unpack/perl-$PERL_VERSION perl-$PERL_VERSION
@@ -317,6 +317,22 @@ EOF
       cat >"$PERL_PREFIX"/bin/cpan-make-install <<EOF
 "$MAKE" || exit
 
+# patch CPAN::HandleConfig.pm
+HCPM="$PERL_PREFIX"/lib/CPAN/HandleConfig.pm
+case "\$(head -n1 "\$HCPM")" in
+   *CPAN::MyConfig* )
+      ;;
+   * )
+      echo "patching \$HCPM for a safer tomorrow"
+      {
+         echo "use CPAN::MyConfig;"
+         cat "\$HCPM"
+      } >"\$HCPM~"
+      rm -f "\$HCPM"
+      mv "\$HCPM~" "\$HCPM"
+      ;;
+esac
+
 if find blib/arch/auto -type f | grep -q -v .exists; then
    echo Probably an XS module, rebuilding perl
    if "$MAKE" perl; then
@@ -337,7 +353,11 @@ EOF
       # trick CPAN into avoiding ~/.cpan completely
       echo 1 >"$PERL_PREFIX/lib/CPAN/MyConfig.pm"
 
-      "$PERL_PREFIX"/bin/perl -MCPAN -e '
+      # we call cpan with -MCPAN::MyConfig in this script, but
+      # every make install will patch CPAN::HandleConfig.pm to
+      # protect the user.
+
+      "$PERL_PREFIX"/bin/perl -MCPAN::MyConfig -MCPAN -e '
          CPAN::Shell->o (conf => urllist => push => "'"$CPAN"'");
          CPAN::Shell->o (conf => q<cpan_home>, "'"$STATICPERL"'/cpan");
          CPAN::Shell->o (conf => q<init>);
@@ -349,6 +369,7 @@ EOF
          CPAN::Shell->o (conf => q<make_install_make_command>, "'"$PERL_PREFIX"'/bin/cpan-make-install");
          CPAN::Shell->o (conf => q<prerequisites_policy>, q<follow>);
          CPAN::Shell->o (conf => q<build_requires_install_policy>, q<no>);
+         CPAN::Shell->o (conf => q<prefer_installer>, "EUMM");
          CPAN::Shell->o (conf => q<commit>);
       ' || fatal "error while initialising CPAN"
 
@@ -378,7 +399,7 @@ $@
 EOF
 
    for mod in "$@"; do
-      "$PERL_PREFIX"/bin/perl -MCPAN -e 'notest install => "'"$mod"'"' \
+      "$PERL_PREFIX"/bin/perl -MCPAN::MyConfig -MCPAN -e 'notest install => "'"$mod"'"' \
          || fatal "$mod: unable to install from CPAN"
    done
    rm -rf "$STATICPERL/build"
