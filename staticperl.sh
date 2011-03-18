@@ -31,7 +31,8 @@ esac
 # -Wl,--gc-sections makes it impossible to check for undefined references
 # for some reason so we need to patch away the "-no" after Configure and before make :/
 # --allow-multiple-definition exists to work around uclibc's pthread static linking bug
-PERL_LDFLAGS="-Wl,--no-gc-sections -Wl,--allow-multiple-definition"
+#PERL_LDFLAGS="-Wl,--no-gc-sections -Wl,--allow-multiple-definition"
+PERL_LDFLAGS=
 PERL_LIBS="-lm -lcrypt" # perl loves to add lotsa crap itself
 
 # some configuration options for modules
@@ -49,6 +50,7 @@ EXTRA_MODULES=""
 
 # overridable functions
 preconfigure()  { : ; }
+patchconfig()   { : ; }
 postconfigure() { : ; }
 postbuild()     { : ; }
 postinstall()   { : ; }
@@ -73,7 +75,7 @@ LC_ALL=C; export LC_ALL # just to be on the safe side
 
 # set version in a way that Makefile.PL can extract
 VERSION=VERSION; eval \
-$VERSION="1.2"
+$VERSION="1.21"
 
 BZ2=bz2
 BZIP2=bzip2
@@ -167,7 +169,7 @@ EOF
 
       mkdir -p unpack
       rm -rf unpack/perl-$PERL_VERSION
-      $BZIP2 -d <perl-$PERL_VERSION.tar.$BZ2 | ( cd unpack && tar x ) \
+      $BZIP2 -d <perl-$PERL_VERSION.tar.$BZ2 | ( cd unpack && tar xf - ) \
          || fatal "perl-$PERL_VERSION.tar.$BZ2: error during unpacking"
       chmod -R u+w unpack/perl-$PERL_VERSION
       mv unpack/perl-$PERL_VERSION perl-$PERL_VERSION
@@ -229,7 +231,11 @@ EOF
    grep -q -- -fstack-protector Configure && \
       sedreplace 's/-fstack-protector/-fno-stack-protector/g' Configure
 
-   preconfigure
+   # what did that bloke think
+   grep -q -- usedl=.define hints/darwin.sh && \
+      sedreplace '/^usedl=.define.;$/d' hints/darwin.sh
+
+   preconfigure || fatal "preconfigure hook failed"
 
 #   trace configure \
    sh Configure -Duselargefiles \
@@ -270,6 +276,8 @@ EOF
       s/-Wl,--no-gc-sections/-Wl,--gc-sections/g
       s/ *-fno-stack-protector */ /g
    ' config.sh
+
+   patchconfig || fatal "patchconfig hook failed"
 
    sh Configure -S || fatal "Configure -S failed"
 

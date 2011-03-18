@@ -1,5 +1,16 @@
 Revision history for Perl extension App::Staticperl
 
+1.21  Fri Mar 18 19:21:15 CET 2011
+	- ok, irix tar has no working -f and freebsd tar goes to a device
+          by default, so screw irix and go with freebsd.
+	- some bloke thought it's cool to force dynamic linking on darwin.
+          force as in "either you enable it, or the resulting build will be
+          forcefully broken". proves that whoever uses darwin deserves it.
+          anyway, we now patch away the idiocy in the hints file.
+        - for better portability, do not supply -Wl,--no-gc-sections
+          -Wl,--allow-multiple-definition, but sitll patch -Wl,--no-gc...
+        - new hook: patchconfig.
+
 1.2   Mon Mar 14 00:11:15 CET 2011
         - patch CPAN::HandleConfig as there seems to be no other way to
           keep it from clobbering the users MyConfig.pm accidentally.

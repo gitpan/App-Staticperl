@@ -942,6 +942,10 @@ In addition to environment variables, it is possible to provide some
 shell functions that are called at specific times. To provide your own
 commands, just define the corresponding function.
 
+The actual order in which hooks are invoked during a full install
+from scratch is C<preconfigure>, C<patchconfig>, C<postconfigure>,
+C<postbuild>, C<postinstall>.
+
 Example: install extra modules from CPAN and from some directories
 at F<staticperl install> time.
 
@@ -957,19 +961,24 @@ at F<staticperl install> time.
 
 =item preconfigure
 
-Called just before running F<./Configur> in the perl source
+Called just before running F<./Configure> in the perl source
 directory. Current working directory is the perl source directory.
 
 This can be used to set any C<PERL_xxx> variables, which might be costly
 to compute.
 
+=item patchconfig
+
+Called after running F<./Configure> in the perl source directory to create
+F<./config.sh>, but before running F<./Configure -S> to actually apply the
+config. Current working directory is the perl source directory.
+
+Can be used to tailor/patch F<config.sh> or do any other modifications.
+
 =item postconfigure
 
 Called after configuring, but before building perl. Current working
 directory is the perl source directory.
-
-Could be used to tailor/patch config.sh (followed by F<sh Configure -S>)
-or do any other modifications.
 
 =item postbuild
 

@@ -843,6 +843,10 @@ THE STATICPERL SCRIPT
     shell functions that are called at specific times. To provide your own
     commands, just define the corresponding function.
 
+    The actual order in which hooks are invoked during a full install from
+    scratch is "preconfigure", "patchconfig", "postconfigure", "postbuild",
+    "postinstall".
+
     Example: install extra modules from CPAN and from some directories at
     staticperl install time.
 
@@ -855,18 +859,23 @@ THE STATICPERL SCRIPT
        }
 
     preconfigure
-        Called just before running ./Configur in the perl source directory.
+        Called just before running ./Configure in the perl source directory.
         Current working directory is the perl source directory.
 
         This can be used to set any "PERL_xxx" variables, which might be
         costly to compute.
 
+    patchconfig
+        Called after running ./Configure in the perl source directory to
+        create ./config.sh, but before running ./Configure -S to actually
+        apply the config. Current working directory is the perl source
+        directory.
+
+        Can be used to tailor/patch config.sh or do any other modifications.
+
     postconfigure
         Called after configuring, but before building perl. Current working
         directory is the perl source directory.
-
-        Could be used to tailor/patch config.sh (followed by sh Configure
-        -S) or do any other modifications.
 
     postbuild
         Called after building, but before installing perl. Current working
