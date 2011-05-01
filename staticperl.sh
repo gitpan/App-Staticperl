@@ -37,9 +37,10 @@ PERL_LIBS="-lm -lcrypt" # perl loves to add lotsa crap itself
 
 # some configuration options for modules
 PERL_MM_USE_DEFAULT=1
+PERL_MM_OPT="MAN1PODS= MAN3PODS="
 #CORO_INTERFACE=p # needed without nptl on x86, due to bugs in linuxthreads - very slow
 EV_EXTRA_DEFS='-DEV_FEATURES=4+8+16+64 -DEV_USE_SELECT=0 -DEV_USE_POLL=1 -DEV_USE_EPOLL=1 -DEV_NO_LOOPS -DEV_COMPAT3=0'
-export PERL_MM_USE_DEFAULT CORO_INTERFACE EV_EXTRA_DEFS
+export PERL_MM_USE_DEFAULT PERL_MM_OPT CORO_INTERFACE EV_EXTRA_DEFS
 
 # which extra modules to install by default from CPAN that are
 # required by mkbundle
@@ -67,15 +68,19 @@ fi
 #############################################################################
 # support
 
-MKBUNDLE="${MKBUNDLE:=$STATICPERL/mkbundle}"
 PERL_PREFIX="${PERL_PREFIX:=$STATICPERL/perl}" # where the perl gets installed
 
-unset PERL5OPT PERL5LIB PERLLIB PERL_UNICODE PERLIO_DEBUG 
+unset PERL5OPT PERL5LIB PERLLIB PERL_UNICODE PERLIO_DEBUG
+unset PERL_MB_OPT
 LC_ALL=C; export LC_ALL # just to be on the safe side
+
+# prepend PATH - not required by staticperl itself, but might make
+# life easier when working in e.g. "staticperl cpan / look"
+PATH="$PERL_PREFIX/perl/bin:$PATH"
 
 # set version in a way that Makefile.PL can extract
 VERSION=VERSION; eval \
-$VERSION="1.21"
+$VERSION="1.22"
 
 BZ2=bz2
 BZIP2=bzip2
@@ -153,6 +158,9 @@ downloading perl
 to manually download perl yourself, place
 perl-$PERL_VERSION.tar.$BZ2 in $STATICPERL
 trying $URL
+
+either curl or wget is required for automatic download.
+curl is tried first, then wget.
 EOF
 
          rm -f perl-$PERL_VERSION.tar.$BZ2~ # just to be on the safe side
@@ -286,6 +294,17 @@ EOF
    touch staticstamp.configure
 }
 
+write_shellscript() {
+   {
+      echo "#!/bin/sh"
+      echo "STATICPERL=\"$STATICPERL\""
+      echo "PERL_PREFIX=\"$PERL_PREFIX\""
+      echo "MAKE=\"$MAKE\""
+      cat
+   } >"$PERL_PREFIX/bin/$1"
+   chmod 755 "$PERL_PREFIX/bin/$1"
+}
+
 build() {
    configure
 
@@ -314,6 +333,8 @@ EOF
       ln -sf "perl/bin/" "$STATICPERL/bin"
       ln -sf "perl/lib/" "$STATICPERL/lib"
 
+      mkdir "$STATICPERL/patched"
+
       ln -sf "$PERL_PREFIX" "$STATICPERL/perl" # might get overwritten
       rm -rf "$PERL_PREFIX"                    # by this rm -rf
 
@@ -322,49 +343,23 @@ EOF
       rcd "$PERL_PREFIX"
 
       # create a "make install" replacement for CPAN
-      cat >"$PERL_PREFIX"/bin/cpan-make-install <<EOF
-"$MAKE" || exit
-
-# patch CPAN::HandleConfig.pm
-HCPM="$PERL_PREFIX"/lib/CPAN/HandleConfig.pm
-case "\$(head -n1 "\$HCPM")" in
-   *CPAN::MyConfig* )
-      ;;
-   * )
-      echo "patching \$HCPM for a safer tomorrow"
-      {
-         echo "use CPAN::MyConfig;"
-         cat "\$HCPM"
-      } >"\$HCPM~"
-      rm -f "\$HCPM"
-      mv "\$HCPM~" "\$HCPM"
-      ;;
-esac
-
-if find blib/arch/auto -type f | grep -q -v .exists; then
-   echo Probably an XS module, rebuilding perl
-   if "$MAKE" perl; then
-      mv perl "$PERL_PREFIX"/bin/perl~ \
-         && rm -f "$PERL_PREFIX"/bin/perl \
-         && mv "$PERL_PREFIX"/bin/perl~ "$PERL_PREFIX"/bin/perl
-      "$MAKE" -f Makefile.aperl map_clean
-   else
-      "$MAKE" -f Makefile.aperl map_clean
-      exit 1
-   fi
-fi
-
-"$MAKE" install UNINST=1
+      write_shellscript SP-make-install-make <<'EOF'
+#CAT make-install-make.sh
 EOF
-      chmod 755 "$PERL_PREFIX"/bin/cpan-make-install
 
-      # trick CPAN into avoiding ~/.cpan completely
+      # create a "patch modules" helper
+      write_shellscript SP-patch-postinstall <<'EOF'
+#CAT patch-postinstall.sh
+EOF
+
+      "$PERL_PREFIX/bin/SP-patch-postinstall"
+
+      # help to trick CPAN into avoiding ~/.cpan completely
       echo 1 >"$PERL_PREFIX/lib/CPAN/MyConfig.pm"
 
-      # we call cpan with -MCPAN::MyConfig in this script, but
-      # every make install will patch CPAN::HandleConfig.pm to
-      # protect the user.
-
+      # we call cpan with -MCPAN::MyConfig in this script, which
+      # is strictly unnecssary as we have to patch CPAN anyway,
+      # so consider it "for good measure".
       "$PERL_PREFIX"/bin/perl -MCPAN::MyConfig -MCPAN -e '
          CPAN::Shell->o (conf => urllist => push => "'"$CPAN"'");
          CPAN::Shell->o (conf => q<cpan_home>, "'"$STATICPERL"'/cpan");
@@ -374,7 +369,7 @@ EOF
          CPAN::Shell->o (conf => q<prefs_dir>, "'"$STATICPERL"'/cpan/prefs");
          CPAN::Shell->o (conf => q<histfile> , "'"$STATICPERL"'/cpan/histfile");
          CPAN::Shell->o (conf => q<keep_source_where>, "'"$STATICPERL"'/cpan/sources");
-         CPAN::Shell->o (conf => q<make_install_make_command>, "'"$PERL_PREFIX"'/bin/cpan-make-install");
+         CPAN::Shell->o (conf => q<make_install_make_command>, "'"$PERL_PREFIX"'/bin/SP-make-install-make");
          CPAN::Shell->o (conf => q<prerequisites_policy>, q<follow>);
          CPAN::Shell->o (conf => q<build_requires_install_policy>, q<no>);
          CPAN::Shell->o (conf => q<prefer_installer>, "EUMM");
@@ -433,7 +428,7 @@ EOF
          "$MAKE" distclean >/dev/null 2>&1
          "$PERL_PREFIX"/bin/perl Makefile.PL || fatal "$mod: error running Makefile.PL"
          "$MAKE" || fatal "$mod: error building module"
-         "$PERL_PREFIX"/bin/cpan-make-install || fatal "$mod: error installing module"
+         "$PERL_PREFIX"/bin/SP-make-install-make install || fatal "$mod: error installing module"
          "$MAKE" distclean >/dev/null 2>&1
          exit 0
       ) || exit $?
@@ -475,6 +470,7 @@ MKBUNDLE
 }
 
 bundle() {
+   MKBUNDLE="${MKBUNDLE:=$PERL_PREFIX/bin/SP-mkbundle}"
    catmkbundle >"$MKBUNDLE~" || fatal "$MKBUNDLE~: cannot create"
    chmod 755 "$MKBUNDLE~" && mv "$MKBUNDLE~" "$MKBUNDLE"
    CACHE="$STATICPERL/cache"
@@ -503,9 +499,14 @@ if [ $# -gt 0 ]; then
             ( instcpan "$@" ) || exit
             exit
             ;;
+         perl )
+            ( install ) || exit
+            exec "$PERL_PREFIX/bin/perl" "$@"
+            exit
+            ;;
          cpan )
             ( install ) || exit
-            "$PERL_PREFIX/bin/cpan" "$@"
+            exec "$PERL_PREFIX/bin/cpan" "$@"
             exit
             ;;
          mkbundle )

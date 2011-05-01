@@ -22,7 +22,7 @@ $ENV{PATH}="/usr/ucb/bin:$ENV{PATH}"
 PERL_VERSION=5.12.3
 STATICPERL=$PFX
 PERL_CCFLAGS=
-PERL_OPTIMIZE="-O0 -g0"
+PERL_OPTIMIZE=""
 PERL_CONFIGURE="-Ucc= -Uccflags= -Uldflags= -Ulibs="
 EOF
 }

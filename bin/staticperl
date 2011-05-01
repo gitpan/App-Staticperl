@@ -37,9 +37,10 @@ PERL_LIBS="-lm -lcrypt" # perl loves to add lotsa crap itself
 
 # some configuration options for modules
 PERL_MM_USE_DEFAULT=1
+PERL_MM_OPT="MAN1PODS= MAN3PODS="
 #CORO_INTERFACE=p # needed without nptl on x86, due to bugs in linuxthreads - very slow
 EV_EXTRA_DEFS='-DEV_FEATURES=4+8+16+64 -DEV_USE_SELECT=0 -DEV_USE_POLL=1 -DEV_USE_EPOLL=1 -DEV_NO_LOOPS -DEV_COMPAT3=0'
-export PERL_MM_USE_DEFAULT CORO_INTERFACE EV_EXTRA_DEFS
+export PERL_MM_USE_DEFAULT PERL_MM_OPT CORO_INTERFACE EV_EXTRA_DEFS
 
 # which extra modules to install by default from CPAN that are
 # required by mkbundle
@@ -67,15 +68,19 @@ fi
 #############################################################################
 # support
 
-MKBUNDLE="${MKBUNDLE:=$STATICPERL/mkbundle}"
 PERL_PREFIX="${PERL_PREFIX:=$STATICPERL/perl}" # where the perl gets installed
 
-unset PERL5OPT PERL5LIB PERLLIB PERL_UNICODE PERLIO_DEBUG 
+unset PERL5OPT PERL5LIB PERLLIB PERL_UNICODE PERLIO_DEBUG
+unset PERL_MB_OPT
 LC_ALL=C; export LC_ALL # just to be on the safe side
+
+# prepend PATH - not required by staticperl itself, but might make
+# life easier when working in e.g. "staticperl cpan / look"
+PATH="$PERL_PREFIX/perl/bin:$PATH"
 
 # set version in a way that Makefile.PL can extract
 VERSION=VERSION; eval \
-$VERSION="1.21"
+$VERSION="1.22"
 
 BZ2=bz2
 BZIP2=bzip2
@@ -153,6 +158,9 @@ downloading perl
 to manually download perl yourself, place
 perl-$PERL_VERSION.tar.$BZ2 in $STATICPERL
 trying $URL
+
+either curl or wget is required for automatic download.
+curl is tried first, then wget.
 EOF
 
          rm -f perl-$PERL_VERSION.tar.$BZ2~ # just to be on the safe side
@@ -286,6 +294,17 @@ EOF
    touch staticstamp.configure
 }
 
+write_shellscript() {
+   {
+      echo "#!/bin/sh"
+      echo "STATICPERL=\"$STATICPERL\""
+      echo "PERL_PREFIX=\"$PERL_PREFIX\""
+      echo "MAKE=\"$MAKE\""
+      cat
+   } >"$PERL_PREFIX/bin/$1"
+   chmod 755 "$PERL_PREFIX/bin/$1"
+}
+
 build() {
    configure
 
@@ -314,6 +333,8 @@ EOF
       ln -sf "perl/bin/" "$STATICPERL/bin"
       ln -sf "perl/lib/" "$STATICPERL/lib"
 
+      mkdir "$STATICPERL/patched"
+
       ln -sf "$PERL_PREFIX" "$STATICPERL/perl" # might get overwritten
       rm -rf "$PERL_PREFIX"                    # by this rm -rf
 
@@ -322,28 +343,16 @@ EOF
       rcd "$PERL_PREFIX"
 
       # create a "make install" replacement for CPAN
-      cat >"$PERL_PREFIX"/bin/cpan-make-install <<EOF
+      write_shellscript SP-make-install-make <<'EOF'
+#! sh
+
 "$MAKE" || exit
 
-# patch CPAN::HandleConfig.pm
-HCPM="$PERL_PREFIX"/lib/CPAN/HandleConfig.pm
-case "\$(head -n1 "\$HCPM")" in
-   *CPAN::MyConfig* )
-      ;;
-   * )
-      echo "patching \$HCPM for a safer tomorrow"
-      {
-         echo "use CPAN::MyConfig;"
-         cat "\$HCPM"
-      } >"\$HCPM~"
-      rm -f "\$HCPM"
-      mv "\$HCPM~" "\$HCPM"
-      ;;
-esac
+"$PERL_PREFIX"/bin/SP-patch-postinstall
 
 if find blib/arch/auto -type f | grep -q -v .exists; then
    echo Probably an XS module, rebuilding perl
-   if "$MAKE" perl; then
+   if "$MAKE" all perl; then
       mv perl "$PERL_PREFIX"/bin/perl~ \
          && rm -f "$PERL_PREFIX"/bin/perl \
          && mv "$PERL_PREFIX"/bin/perl~ "$PERL_PREFIX"/bin/perl
@@ -355,16 +364,60 @@ if find blib/arch/auto -type f | grep -q -v .exists; then
 fi
 
 "$MAKE" install UNINST=1
-EOF
-      chmod 755 "$PERL_PREFIX"/bin/cpan-make-install
 
-      # trick CPAN into avoiding ~/.cpan completely
+EOF
+
+      # create a "patch modules" helper
+      write_shellscript SP-patch-postinstall <<'EOF'
+#! sh
+
+# helper to apply patches after installation
+
+patch() {
+   path="$PERL_PREFIX/lib/$1"
+   cache="$STATICPERL/patched/$2"
+   sed="$3"
+
+   if "$PERL_PREFIX/bin/perl" -e 'exit ((stat shift)[9] <= (stat shift)[9])' "$path" "$cache"; then
+      echo "patching $path for a better tomorrrow"
+
+      if ! sed -e "$sed" <"$path" > "$cache~"; then
+         echo
+         echo "*** FATAL: error while patching $path"
+         echo
+      else
+         rm -f "$cache"
+         mv "$cache~" "$cache"
+         rm -f "$path"
+         cp "$cache" "$path"
+      fi
+   fi
+}
+
+# patch CPAN::HandleConfig.pm to always include _our_ MyConfig.pm,
+# not the one in the users homedirectory, to avoid clobbering his.
+patch CPAN/HandleConfig.pm cpan_handleconfig_pm '
+1i\
+use CPAN::MyConfig; # patched by staticperl
+'
+
+# patch ExtUtils::MM_Unix to always search blib for modules
+# when building a perl - this works around Pango/Gtk2 being misdetected
+# as not being an XS module.
+patch ExtUtils/MM_Unix.pm mm_unix_pm '
+/^sub staticmake/,/^}/ s/if (@{$self->{C}}) {/if (@{$self->{C}} or $self->{NAME} =~ m%^(Pango|Gtk2)$%) { # patched by staticperl/
+'
+
+EOF
+
+      "$PERL_PREFIX/bin/SP-patch-postinstall"
+
+      # help to trick CPAN into avoiding ~/.cpan completely
       echo 1 >"$PERL_PREFIX/lib/CPAN/MyConfig.pm"
 
-      # we call cpan with -MCPAN::MyConfig in this script, but
-      # every make install will patch CPAN::HandleConfig.pm to
-      # protect the user.
-
+      # we call cpan with -MCPAN::MyConfig in this script, which
+      # is strictly unnecssary as we have to patch CPAN anyway,
+      # so consider it "for good measure".
       "$PERL_PREFIX"/bin/perl -MCPAN::MyConfig -MCPAN -e '
          CPAN::Shell->o (conf => urllist => push => "'"$CPAN"'");
          CPAN::Shell->o (conf => q<cpan_home>, "'"$STATICPERL"'/cpan");
@@ -374,7 +427,7 @@ EOF
          CPAN::Shell->o (conf => q<prefs_dir>, "'"$STATICPERL"'/cpan/prefs");
          CPAN::Shell->o (conf => q<histfile> , "'"$STATICPERL"'/cpan/histfile");
          CPAN::Shell->o (conf => q<keep_source_where>, "'"$STATICPERL"'/cpan/sources");
-         CPAN::Shell->o (conf => q<make_install_make_command>, "'"$PERL_PREFIX"'/bin/cpan-make-install");
+         CPAN::Shell->o (conf => q<make_install_make_command>, "'"$PERL_PREFIX"'/bin/SP-make-install-make");
          CPAN::Shell->o (conf => q<prerequisites_policy>, q<follow>);
          CPAN::Shell->o (conf => q<build_requires_install_policy>, q<no>);
          CPAN::Shell->o (conf => q<prefer_installer>, "EUMM");
@@ -433,7 +486,7 @@ EOF
          "$MAKE" distclean >/dev/null 2>&1
          "$PERL_PREFIX"/bin/perl Makefile.PL || fatal "$mod: error running Makefile.PL"
          "$MAKE" || fatal "$mod: error building module"
-         "$PERL_PREFIX"/bin/cpan-make-install || fatal "$mod: error installing module"
+         "$PERL_PREFIX"/bin/SP-make-install-make install || fatal "$mod: error installing module"
          "$MAKE" distclean >/dev/null 2>&1
          exit 0
       ) || exit $?
@@ -1618,6 +1671,7 @@ MKBUNDLE
 }
 
 bundle() {
+   MKBUNDLE="${MKBUNDLE:=$PERL_PREFIX/bin/SP-mkbundle}"
    catmkbundle >"$MKBUNDLE~" || fatal "$MKBUNDLE~: cannot create"
    chmod 755 "$MKBUNDLE~" && mv "$MKBUNDLE~" "$MKBUNDLE"
    CACHE="$STATICPERL/cache"
@@ -1646,9 +1700,14 @@ if [ $# -gt 0 ]; then
             ( instcpan "$@" ) || exit
             exit
             ;;
+         perl )
+            ( install ) || exit
+            exec "$PERL_PREFIX/bin/perl" "$@"
+            exit
+            ;;
          cpan )
             ( install ) || exit
-            "$PERL_PREFIX/bin/cpan" "$@"
+            exec "$PERL_PREFIX/bin/cpan" "$@"
             exit
             ;;
          mkbundle )
@@ -1696,6 +1755,7 @@ staticperl - perl, libc, 100 modules, all in one 500kb file
    staticperl install   # build and then install perl
    staticperl clean     # clean most intermediate files (restart at configure)
    staticperl distclean # delete everything installed by this script
+   staticperl perl ...  # invoke the perlinterpreter
    staticperl cpan      # invoke CPAN shell
    staticperl instmod path...        # install unpacked modules
    staticperl instcpan modulename... # install modules from CPAN
@@ -1872,6 +1932,16 @@ configuring them.
 
 Wipes the perl installation directory (usually F<~/.staticperl/perl>) and
 installs the perl distribution, potentially after building it first.
+
+=item F<staticperl perl> [args...]
+
+Invokes the compiled perl interpreter with the given args. Basically the
+same as starting perl directly (usually via F<~/.staticperl/bin/perl>),
+but beats typing the path sometimes.
+
+Example: check that the Gtk2 module is installed and loadable.
+
+   staticperl perl -MGtk2 -e0
 
 =item F<staticperl cpan> [args...]
 
@@ -2599,6 +2669,11 @@ F<~/.staticperlrc> to override them.
 Most of the variables override (or modify) the corresponding F<Configure>
 variable, except C<PERL_CCFLAGS>, which gets appended.
 
+You should have a look near the beginning of the F<staticperl> script -
+staticperl tries to default C<PERL_OPTIMIZE> to some psace-saving options
+suitable for newer gcc versions. For other compilers or older versions you
+need to adjust these, for example, in your F<~/.staticperlrc>.
+
 =back
 
 =head4 Variables you probably I<do not want> to override
@@ -2909,6 +2984,10 @@ C<"AnyEvent/Util/uts46data.pl">.
 Or you can use C<--usepacklists> and specify C<-MAnyEvent> to include
 everything.
 
+=item Cairo
+
+See Glib, same problem, same solution.
+
 =item Carp
 
 Carp had (in older versions of perl) a dependency on L<Carp::Heavy>. As of
@@ -2919,6 +2998,23 @@ perl 5.12.2 (maybe earlier), this dependency no longer exists.
 The F<perl -V> switch (as well as many modules) needs L<Config>, which in
 turn might need L<"Config_heavy.pl">. Including the latter gives you
 both.
+
+=item Glib
+
+Glib literally requires Glib to be installed already to build - it tries
+to fake this by running Glib out of the build directory before being
+built. F<staticperl> tries to work around this by forcing C<MAN1PODS> and
+C<MAN3PODS> to be empty via the C<PERL_MM_OPT> environment variable.
+
+=item Gtk2
+
+See Pango, same problems, same solution.
+
+=item Pango
+
+In addition to the C<MAN3PODS> problem in Glib, Pango also routes around
+L<ExtUtils::MakeMaker> by compiling its files on its own. F<staticperl>
+tries to patch L<ExtUtils::MM_Unix> to route around Pango.
 
 =item Term::ReadLine::Perl
 

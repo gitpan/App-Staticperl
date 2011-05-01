@@ -11,6 +11,7 @@ staticperl - perl, libc, 100 modules, all in one 500kb file
    staticperl install   # build and then install perl
    staticperl clean     # clean most intermediate files (restart at configure)
    staticperl distclean # delete everything installed by this script
+   staticperl perl ...  # invoke the perlinterpreter
    staticperl cpan      # invoke CPAN shell
    staticperl instmod path...        # install unpacked modules
    staticperl instcpan modulename... # install modules from CPAN
@@ -187,6 +188,16 @@ configuring them.
 
 Wipes the perl installation directory (usually F<~/.staticperl/perl>) and
 installs the perl distribution, potentially after building it first.
+
+=item F<staticperl perl> [args...]
+
+Invokes the compiled perl interpreter with the given args. Basically the
+same as starting perl directly (usually via F<~/.staticperl/bin/perl>),
+but beats typing the path sometimes.
+
+Example: check that the Gtk2 module is installed and loadable.
+
+   staticperl perl -MGtk2 -e0
 
 =item F<staticperl cpan> [args...]
 
@@ -914,6 +925,11 @@ F<~/.staticperlrc> to override them.
 Most of the variables override (or modify) the corresponding F<Configure>
 variable, except C<PERL_CCFLAGS>, which gets appended.
 
+You should have a look near the beginning of the F<staticperl> script -
+staticperl tries to default C<PERL_OPTIMIZE> to some psace-saving options
+suitable for newer gcc versions. For other compilers or older versions you
+need to adjust these, for example, in your F<~/.staticperlrc>.
+
 =back
 
 =head4 Variables you probably I<do not want> to override
@@ -1224,6 +1240,10 @@ C<"AnyEvent/Util/uts46data.pl">.
 Or you can use C<--usepacklists> and specify C<-MAnyEvent> to include
 everything.
 
+=item Cairo
+
+See Glib, same problem, same solution.
+
 =item Carp
 
 Carp had (in older versions of perl) a dependency on L<Carp::Heavy>. As of
@@ -1234,6 +1254,23 @@ perl 5.12.2 (maybe earlier), this dependency no longer exists.
 The F<perl -V> switch (as well as many modules) needs L<Config>, which in
 turn might need L<"Config_heavy.pl">. Including the latter gives you
 both.
+
+=item Glib
+
+Glib literally requires Glib to be installed already to build - it tries
+to fake this by running Glib out of the build directory before being
+built. F<staticperl> tries to work around this by forcing C<MAN1PODS> and
+C<MAN3PODS> to be empty via the C<PERL_MM_OPT> environment variable.
+
+=item Gtk2
+
+See Pango, same problems, same solution.
+
+=item Pango
+
+In addition to the C<MAN3PODS> problem in Glib, Pango also routes around
+L<ExtUtils::MakeMaker> by compiling its files on its own. F<staticperl>
+tries to patch L<ExtUtils::MM_Unix> to route around Pango.
 
 =item Term::ReadLine::Perl
 

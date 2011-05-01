@@ -9,6 +9,8 @@ eg/httpd
 
 build
 staticperl.sh
+make-install-make.sh
+patch-postinstall.sh
 mkbundle
 staticperl.pod
 

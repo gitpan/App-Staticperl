@@ -9,6 +9,7 @@ SYNOPSIS
        staticperl install   # build and then install perl
        staticperl clean     # clean most intermediate files (restart at configure)
        staticperl distclean # delete everything installed by this script
+       staticperl perl ...  # invoke the perlinterpreter
        staticperl cpan      # invoke CPAN shell
        staticperl instmod path...        # install unpacked modules
        staticperl instcpan modulename... # install modules from CPAN
@@ -176,6 +177,15 @@ THE STATICPERL SCRIPT
         Wipes the perl installation directory (usually ~/.staticperl/perl)
         and installs the perl distribution, potentially after building it
         first.
+
+    staticperl perl [args...]
+        Invokes the compiled perl interpreter with the given args. Basically
+        the same as starting perl directly (usually via
+        ~/.staticperl/bin/perl), but beats typing the path sometimes.
+
+        Example: check that the Gtk2 module is installed and loadable.
+
+           staticperl perl -MGtk2 -e0
 
     staticperl cpan [args...]
         Starts an interactive CPAN shell that you can use to install further
@@ -826,6 +836,12 @@ THE STATICPERL SCRIPT
         Most of the variables override (or modify) the corresponding
         Configure variable, except "PERL_CCFLAGS", which gets appended.
 
+        You should have a look near the beginning of the staticperl script -
+        staticperl tries to default "PERL_OPTIMIZE" to some psace-saving
+        options suitable for newer gcc versions. For other compilers or
+        older versions you need to adjust these, for example, in your
+        ~/.staticperlrc.
+
    Variables you probably *do not want* to override
     "MAKE"
         The make command to use - default is "make".
@@ -1090,6 +1106,9 @@ RECIPES / SPECIFIC MODULES
         Or you can use "--usepacklists" and specify "-MAnyEvent" to include
         everything.
 
+    Cairo
+        See Glib, same problem, same solution.
+
     Carp
         Carp had (in older versions of perl) a dependency on Carp::Heavy. As
         of perl 5.12.2 (maybe earlier), this dependency no longer exists.
@@ -1098,6 +1117,21 @@ RECIPES / SPECIFIC MODULES
         The perl -V switch (as well as many modules) needs Config, which in
         turn might need "Config_heavy.pl". Including the latter gives you
         both.
+
+    Glib
+        Glib literally requires Glib to be installed already to build - it
+        tries to fake this by running Glib out of the build directory before
+        being built. staticperl tries to work around this by forcing
+        "MAN1PODS" and "MAN3PODS" to be empty via the "PERL_MM_OPT"
+        environment variable.
+
+    Gtk2
+        See Pango, same problems, same solution.
+
+    Pango
+        In addition to the "MAN3PODS" problem in Glib, Pango also routes
+        around ExtUtils::MakeMaker by compiling its files on its own.
+        staticperl tries to patch ExtUtils::MM_Unix to route around Pango.
 
     Term::ReadLine::Perl
         Also needs Term::ReadLine::readline, or "--usepacklists".

@@ -1,5 +1,26 @@
 Revision history for Perl extension App::Staticperl
 
+1.22  Sun May  1 11:28:54 CEST 2011
+	- prepend staticperl binary install path to PATH when running any
+          commands - will help many broken modules and scripts (e.g. those
+          using the broken #!env perl hack), but will also make life easier
+          for "staticperl cpan / look" users.
+	- use empty PERL_OPTIMIZE flags in testsuite for higher portability.
+        - unset PERL_CORE and PERL_MB_OPT variables because
+          these modules are part of perl - set them in your staticperlrc
+          instead.
+        - disable MAN1PODS and MAN3PODS in PERL_MM_OPT, to make Glib, Cairo,
+          Pango and Gtk2 build.
+        - patch ExtUtils::MM_Unix to search for static archives in blib more
+          often, as it doesn't detect Pango as being an XS module (which
+          is a bug in Pango).
+	- create a patch helper (SP-patch-postinstall) that is executed
+          after perl and eahc module install to do some important patches.
+	- rename the cpan-make-inmstall helper to SP-make-install-make.
+        - write mkbundle to bin/SP-mkbundle.
+        - new "staticperl perl" command.
+        - updated small/bigperl to 5.12.3.
+
 1.21  Fri Mar 18 19:21:15 CET 2011
 	- ok, irix tar has no working -f and freebsd tar goes to a device
           by default, so screw irix and go with freebsd.
