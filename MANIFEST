@@ -4,6 +4,7 @@ COPYING
 Makefile.PL
 
 bin/staticperl
+fake.pm
 
 eg/httpd
 
