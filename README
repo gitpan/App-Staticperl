@@ -38,7 +38,7 @@ DESCRIPTION
 
     With uClibc and upx on x86, you can create a single 500kb binary that
     contains perl and 100 modules such as POSIX, AnyEvent, EV, IO::AIO, Coro
-    and so on. Or any other choice of modules.
+    and so on. Or any other choice of modules (and some other size :).
 
     To see how this turns out, you can try out smallperl and bigperl, two
     pre-built static and compressed perl binaries with many and even more
@@ -1028,7 +1028,7 @@ FULLY STATIC BINARIES - UCLIBC AND BUILDROOT
     To minimise code size, I used "-pipe -ffunction-sections -fdata-sections
     -finline-limit=8 -fno-builtin-strlen -mtune=i386". The "-mtune=i386"
     doesn't decrease codesize much, but it makes the file much more
-    compressible.
+    compressible (and the execution a lot slower...).
 
     If you don't need Coro or threads, you can go with "linuxthreads.old"
     (or no thread support). For Coro, it is highly recommended to switch to

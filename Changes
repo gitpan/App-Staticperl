@@ -1,5 +1,8 @@
 Revision history for Perl extension App::Staticperl
 
+1.31 Tue Jun 14 09:03:59 CEST 2011
+	- pause is more tricky than expected - rename fake.pm to Staticperl.pm.
+
 1.3  Tue May 10 19:39:39 CEST 2011
 	- the nothing-to-see-except-a-version-bump release.
 	- package a fake.pm file to (maybe!) get CPAN to allocate namespace

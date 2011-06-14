@@ -4,7 +4,6 @@ COPYING
 Makefile.PL
 
 bin/staticperl
-fake.pm
 
 eg/httpd
 
@@ -14,6 +13,7 @@ make-install-make.sh
 patch-postinstall.sh
 mkbundle
 staticperl.pod
+Staticperl.pm
 
 t/01_vollwaesche.t
 

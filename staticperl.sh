@@ -80,7 +80,7 @@ PATH="$PERL_PREFIX/perl/bin:$PATH"
 
 # set version in a way that Makefile.PL can extract
 VERSION=VERSION; eval \
-$VERSION="1.3"
+$VERSION="1.31"
 
 BZ2=bz2
 BZIP2=bzip2
