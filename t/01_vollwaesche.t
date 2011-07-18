@@ -19,7 +19,7 @@ $ENV{PATH}="/usr/ucb/bin:$ENV{PATH}"
    open my $fh, ">", "$PFX/staticperlrc"
       or die "$PFX/staticperlrc: $!";
    print $fh <<EOF;
-PERL_VERSION=5.12.3
+PERL_VERSION=5.12.4
 STATICPERL=$PFX
 PERL_CCFLAGS=
 PERL_OPTIMIZE=""

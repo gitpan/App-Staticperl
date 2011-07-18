@@ -4,8 +4,8 @@
 
 "$PERL_PREFIX"/bin/SP-patch-postinstall
 
-if find blib/arch/auto -type f | grep -q -v .exists; then
-   echo Probably an XS module, rebuilding perl
+if find blib/arch/auto -type f \( -name "*.a" -o -name "*.obj" -o -name "*.lib" \) | grep -q .; then
+   echo Probably a static XS module, rebuilding perl
    if "$MAKE" all perl; then
       mv perl "$PERL_PREFIX"/bin/perl~ \
          && rm -f "$PERL_PREFIX"/bin/perl \

@@ -3,15 +3,17 @@
 #############################################################################
 # cannot load modules till after the tracer BEGIN block
 
-our $VERBOSE    = 1;
-our $STRIP      = "pod"; # none, pod or ppi
-our $UNISTRIP   = 1; # always on, try to strip unicore swash data
-our $PERL       = 0;
+our $VERBOSE       = 1;
+our $STRIP         = "pod"; # none, pod or ppi
+our $UNISTRIP      = 1; # always on, try to strip unicore swash data
+our $PERL          = 0;
 our $APP;
-our $VERIFY     = 0;
-our $STATIC     = 0;
-our $PACKLIST   = 0;
-our $IGNORE_ENV = 0;
+our $VERIFY        = 0;
+our $STATIC        = 0;
+our $PACKLIST      = 0;
+our $IGNORE_ENV    = 0;
+our $ALLOW_DYNAMIC = 0;
+our $HAVE_DYNAMIC; # maybe useful?
 
 our $OPTIMISE_SIZE = 0; # optimise for raw file size instead of for compression?
 
@@ -192,14 +194,28 @@ sub dump_string {
    my ($fh, $data) = @_;
 
    if (length $data) {
-      for (
-         my $ofs = 0;
-         length (my $substr = substr $data, $ofs, 80);
-         $ofs += 80
-      )  {
-         $substr =~ s/([^\x20-\x21\x23-\x5b\x5d-\x7e])/sprintf "\\%03o", ord $1/ge;
-         $substr =~ s/\?/\\?/g; # trigraphs...
-         print $fh "  \"$substr\"\n";
+      if ($^O eq "MSWin32") {
+         # 16 bit system, strings can't be longer than 64k. seriously.
+         print $fh "{\n";
+         for (
+            my $ofs = 0;
+            length (my $substr = substr $data, $ofs, 20);
+            $ofs += 20
+         )  {
+            $substr = join ",", map ord, split //, $substr;
+            print $fh "  $substr,\n";
+         }
+         print $fh "   0 }\n";
+      } else {
+         for (
+            my $ofs = 0;
+            length (my $substr = substr $data, $ofs, 80);
+            $ofs += 80
+         )  {
+            $substr =~ s/([^\x20-\x21\x23-\x5b\x5d-\x7e])/sprintf "\\%03o", ord $1/ge;
+            $substr =~ s/\?/\\?/g; # trigraphs...
+            print $fh "  \"$substr\"\n";
+         }
       }
    } else {
       print $fh "  \"\"\n";
@@ -276,7 +292,7 @@ sub get_inctrees {
 #############################################################################
 
 sub cmd_boot {
-   $pm{"&&boot"} = $_[0];
+   $pm{"!boot"} = $_[0];
 }
 
 sub cmd_add {
@@ -359,6 +375,7 @@ sub parse_argv {
 
       "static!"       => \$STATIC,
       "staticlib=s"   => sub { cmd_staticlib $_[1] },
+      "allow-dynamic!"=> \$ALLOW_DYNAMIC,
       "ignore-env"    => \$IGNORE_ENV,
 
       "<>"            => sub { cmd_file      $_[0] },
@@ -477,8 +494,20 @@ for my $pm (keys %pm) {
          }
 
          # dynamic object
-         die "ERROR: found shared object - can't link statically ($_)\n"
-            if -f "$autodir/$base.$Config{dlext}";
+         if (-f "$autodir/$base.$Config{dlext}") {
+            if ($ALLOW_DYNAMIC) {
+               my $as = "!$auto/$base.$Config{dlext}";
+               $pm{$as} = "$autodir/$base.$Config{dlext}";
+               $pmbin{$as} = 1;
+
+               $HAVE_DYNAMIC = 1;
+
+               print "+ added dynamic object $as\n"
+                  if $VERBOSE >= 3;
+            } else {
+               die "ERROR: found shared object '$autodir/$base.$Config{dlext}' but --allow-dynamic not given, aborting.\n"
+            }
+         }
 
          if ($PACKLIST && open my $fh, "<:perlio", "$autodir/.packlist") {
             print "found .packlist for $pm\n"
@@ -805,27 +834,66 @@ print $fh ";\n\n";
 # boot file for staticperl
 # this file will be eval'ed at initialisation time
 
+# lines marked with "^D" are only used when $HAVE_DYNAMIC
 my $bootstrap = '
 BEGIN {
    package ' . $PACKAGE . ';
 
-   PerlIO::scalar->bootstrap;
+   # the path prefix to use when putting files into %INC
+   our $inc_prefix;
 
-   @INC = sub {
+   # the @INC hook to use when we have PerlIO::scalar available
+   my $perlio_inc =  sub {
       my $data = find "$_[1]"
          or return;
 
-      $INC{$_[1]} = $_[1];
+      $INC{$_[1]} = "$inc_prefix$_[1]";
 
       open my $fh, "<", \$data;
       $fh
    };
+
+D  if (defined &PerlIO::scalar::bootstrap) {
+      # PerlIO::scalar statically compiled in
+      PerlIO::scalar->bootstrap;
+      @INC = $perlio_inc;
+D  } else {
+D     # PerlIO::scalar not available, use slower method
+D     @INC = sub {
+D        # always check if PerlIO::scalar might now be available
+D        if (defined &PerlIO::scalar::bootstrap) {
+D           # switch to the faster perlio_inc hook
+D           @INC = map { $_ == $_[0] ? $perlio_inc : $_ } @INC;
+D           goto &$perlio_inc;
+D        }
+D
+D        my $data = find "$_[1]"
+D           or return;
+D
+D        $INC{$_[1]} = "$inc_prefix$_[1]";
+D
+D        sub {
+D           $data =~ /\G([^\n]*\n?)/g
+D              or return;
+D
+D           $_ = $1;
+D           1
+D        }
+D     };
+D  }
 }
 ';
 
-$bootstrap .= "require '&&boot';"
-   if exists $pm{"&&boot"};
+$bootstrap .= "require '!boot';"
+   if exists $pm{"!boot"};
 
+if ($HAVE_DYNAMIC) {
+   $bootstrap =~ s/^D/ /mg;
+} else {
+   $bootstrap =~ s/^D.*$//mg;
+}
+
+$bootstrap =~ s/#.*$//mg;
 $bootstrap =~ s/\s+/ /g;
 $bootstrap =~ s/(\W) /$1/g;
 $bootstrap =~ s/ (\W)/$1/g;
@@ -881,8 +949,7 @@ XS(find)
     XSRETURN (0);
 
   found:
-    ST (0) = res;
-    sv_2mortal (ST (0));
+    ST (0) = sv_2mortal (res);
   }
 
   XSRETURN (1);
@@ -905,7 +972,7 @@ XS(list)
       {
         U32 idx = $varpfx\_index [i];
 
-        PUSHs (newSVpvn ($varpfx\_data + (idx & 0x1FFFFFFU), idx >> 25));
+        PUSHs (sv_2mortal (newSVpvn ($varpfx\_data + (idx & 0x1FFFFFFU), idx >> 25)));
       }
   }
 
@@ -923,7 +990,7 @@ staticperl_xs_init (pTHX)
 {
 EOF
 
-@static_ext = ("DynaLoader", sort @static_ext);
+@static_ext = sort @static_ext;
 
 # prototypes
 for (@static_ext) {
@@ -947,13 +1014,23 @@ for (@static_ext) {
    (my $cname = $_) =~ s/\//__/g;
    (my $pname = $_) =~ s/\//::/g;
 
-   my $bootstrap = $pname eq "DynaLoader" ? "boot" : "bootstrap";
+   my $bootstrap = $pname eq "DynaLoader" ? "boot_DynaLoader" : "bootstrap";
 
    print $fh "  newXS (\"$pname\::$bootstrap\", boot_$cname, file);\n";
 }
 
 print $fh <<EOF;
-  Perl_av_create_and_unshift_one (&PL_preambleav, newSVpv (bootstrap, sizeof (bootstrap) - 1));
+  #ifdef _WIN32
+    /* windows perls usually trail behind unix perls 8-10 years in exporting symbols */
+
+    if (!PL_preambleav)
+      PL_preambleav = newAV ();
+
+    av_unshift (PL_preambleav, 1);
+    av_store (PL_preambleav, 0, newSVpv (bootstrap, sizeof (bootstrap) - 1));
+  #else
+    Perl_av_create_and_unshift_one (&PL_preambleav, newSVpv (bootstrap, sizeof (bootstrap) - 1));
+  #endif
 
   if (PL_oldname)
     ((XSINIT_t)PL_oldname)(aTHX);
@@ -1082,61 +1159,72 @@ staticperl_cleanup (void)
 EOF
 }
 
+close $fh;
+
 print -s "$PREFIX.c", " octets (", (length $data) , " data octets).\n\n"
    if $VERBOSE >= 1;
 
 #############################################################################
 # libs, cflags
 
+my $ccopts;
+
 {
    print "generating $PREFIX.ccopts... "
       if $VERBOSE >= 1;
 
-   my $str = "$Config{ccflags} $Config{optimize} $Config{cppflags} -I$Config{archlibexp}/CORE";
-   $str =~ s/([\(\)])/\\$1/g;
+   $ccopts = "$Config{ccflags} $Config{optimize} $Config{cppflags} -I$Config{archlibexp}/CORE";
+   $ccopts =~ s/([\(\)])/\\$1/g;
 
    open my $fh, ">$PREFIX.ccopts"
       or die "$PREFIX.ccopts: $!";
-   print $fh $str;
+   print $fh $ccopts;
 
-   print "$str\n\n"
+   print "$ccopts\n\n"
       if $VERBOSE >= 1;
 }
+
+my $ldopts;
 
 {
    print "generating $PREFIX.ldopts... ";
 
-   my $str = $STATIC ? "-static " : "";
+   $ldopts = $STATIC ? "-static " : "";
 
-   $str .= "$Config{ccdlflags} $Config{ldflags} @libs $Config{archlibexp}/CORE/$Config{libperl} $Config{perllibs}";
+   $ldopts .= "$Config{ccdlflags} $Config{ldflags} @libs $Config{archlibexp}/CORE/$Config{libperl} $Config{perllibs}";
 
    my %seen;
-   $str .= " $_" for grep !$seen{$_}++, ($extralibs =~ /(\S+)/g);
+   $ldopts .= " $_" for reverse grep !$seen{$_}++, reverse +($extralibs =~ /(\S+)/g);
 
    for (@staticlibs) {
-      $str =~ s/(^|\s) (-l\Q$_\E) ($|\s)/$1-Wl,-Bstatic $2 -Wl,-Bdynamic$3/gx;
+      $ldopts =~ s/(^|\s) (-l\Q$_\E) ($|\s)/$1-Wl,-Bstatic $2 -Wl,-Bdynamic$3/gx;
    }
 
-   $str =~ s/([\(\)])/\\$1/g;
+   $ldopts =~ s/([\(\)])/\\$1/g;
 
    open my $fh, ">$PREFIX.ldopts"
       or die "$PREFIX.ldopts: $!";
-   print $fh $str;
+   print $fh $ldopts;
 
-   print "$str\n\n"
+   print "$ldopts\n\n"
       if $VERBOSE >= 1;
 }
 
 if ($PERL or defined $APP) {
    $APP = "perl" unless defined $APP;
 
-   print "building $APP...\n"
+   my $build = "$Config{cc} $ccopts -o \Q$APP\E$Config{_exe} bundle.c $ldopts";
+
+   print "build $APP...\n"
       if $VERBOSE >= 1;
 
-   system "$Config{cc} \$(cat bundle.ccopts\) -o \Q$APP\E bundle.c \$(cat bundle.ldopts\)";
+   print "$build\n"
+      if $VERBOSE >= 2;
 
-   unlink "$PREFIX.$_"
-      for qw(ccopts ldopts c h);
+   system $build;
+
+#   unlink "$PREFIX.$_"
+#      for qw(ccopts ldopts c h);
 
    print "\n"
       if $VERBOSE >= 1;

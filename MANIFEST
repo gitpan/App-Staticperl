@@ -18,4 +18,5 @@ Staticperl.pm
 t/01_vollwaesche.t
 
 MANIFEST
-META.json                                Module meta-data (added by MakeMaker)
+META.yml                                 Module YAML meta-data (added by MakeMaker)
+META.json                                Module JSON meta-data (added by MakeMaker)

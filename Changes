@@ -1,7 +1,41 @@
 Revision history for Perl extension App::Staticperl
 
+SHLIB_PATH hpux, .sl
+LD_LIBRARY_PATH solaris, .so
+LIBPATH aix .a(?)
+LD_LIBRARY_PATH_32 and LD_LIBRARY_PATH_64 .so solaris
+LD_LIBRARYN32_PATH irix
+LD_LIBRARY64_PATH irix
+DYLD_LIBRARY_PATH darwin
+TODO: nonstatic builds, make.aperl failure does not link in everything?
+TODO-IMPORTANT: CPAN::MyConfig!
+TODO: echo " -ldl" >>"$PERL_PREFIX"/lib/auto/Net/SSLeay/extralibs.ld
+
+1.4  Mon Jul 18 09:33:48 CEST 2011
+	- new configuration variable DLCACHE to avoid repeated downloads.
+        - the static:: namespace was wrongly documented as sttaicperl::.
+        - provide no compiler flags apart from -Os anymore by default.
+        - staticperl clean now removes all build files (src/).
+        - staticperl no longer sets EV_EXTRA_DEFS or CORO_INTERFACE.
+        - patch ExtUtils::Miniperl to always include DynaLoader, otherwise
+          static linking disables later dynamic linking and vice versa.
+        - (experimental) do not build a new perl unless a static archive
+          was created, to make -Dusedl faster.
+        - actually fail when not being able to install some modules from CPAN.
+        - speed up installing modules from CPAN if multiple modules have
+          been specified.
+	- weed out duplicated libraries form the beginning, not the end.
+        - set shell variable $PERL to full path to perl binary
+          when running staticperl cpan, which is handy for subshells.
+        - properly define "boot_DynaLoader" when DynaLoader is available.
+        - fix a memleak in static::list.
+        - mkbundle can now bundle dynamic objects for perl extensions
+          (--allow-dynamic).
+        - lots of windows workarounds/bugfixes.
+
 1.31 Tue Jun 14 09:03:59 CEST 2011
 	- pause is more tricky than expected - rename fake.pm to Staticperl.pm.
+        - improved documentation a bit.
 
 1.3  Tue May 10 19:39:39 CEST 2011
 	- the nothing-to-see-except-a-version-bump release.

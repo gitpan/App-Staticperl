@@ -1,32 +1,33 @@
 #!/bin/sh
 
 #############################################################################
-# configuration to fill in
+# configuration to fill in (or to replace in your .staticperlrc)
 
 STATICPERL=~/.staticperl
 CPAN=http://mirror.netcologne.de/cpan # which mirror to use
 EMAIL="read the documentation <rtfm@example.org>"
+DLCACHE=
 
 # perl build variables
 MAKE=make
-PERL_VERSION=5.12.3 # 5.8.9 is also a good choice
+PERL_VERSION=5.12.4 # 5.8.9 is also a good choice
 PERL_CC=cc
 PERL_CONFIGURE="" # additional Configure arguments
 PERL_CCFLAGS="-g -DPERL_DISABLE_PMC -DPERL_ARENA_SIZE=16376 -DNO_PERL_MALLOC_ENV -D_GNU_SOURCE -DNDEBUG"
-PERL_OPTIMIZE="-Os -ffunction-sections -fdata-sections -finline-limit=8 -ffast-math"
+PERL_OPTIMIZE="-Os" # -Os -ffunction-sections -fdata-sections -finline-limit=8 -ffast-math"
 
 ARCH="$(uname -m)"
 
-case "$ARCH" in
-   i*86 | x86_64 | amd64 )
-      PERL_OPTIMIZE="$PERL_OPTIMIZE -mpush-args -mno-inline-stringops-dynamically -mno-align-stringops -mno-ieee-fp" # x86/amd64
-      case "$ARCH" in
-         i*86 )
-            PERL_OPTIMIZE="$PERL_OPTIMIZE -fomit-frame-pointer -march=pentium3 -mtune=i386" # x86 only
-            ;;
-      esac
-      ;;
-esac
+#case "$ARCH" in
+#   i*86 | x86_64 | amd64 )
+#      PERL_OPTIMIZE="$PERL_OPTIMIZE -mpush-args -mno-inline-stringops-dynamically -mno-align-stringops -mno-ieee-fp" # x86/amd64
+#      case "$ARCH" in
+#         i*86 )
+#            PERL_OPTIMIZE="$PERL_OPTIMIZE -fomit-frame-pointer -march=pentium3 -mtune=i386" # x86 only
+#            ;;
+#      esac
+#      ;;
+#esac
 
 # -Wl,--gc-sections makes it impossible to check for undefined references
 # for some reason so we need to patch away the "-no" after Configure and before make :/
@@ -39,8 +40,8 @@ PERL_LIBS="-lm -lcrypt" # perl loves to add lotsa crap itself
 PERL_MM_USE_DEFAULT=1
 PERL_MM_OPT="MAN1PODS= MAN3PODS="
 #CORO_INTERFACE=p # needed without nptl on x86, due to bugs in linuxthreads - very slow
-EV_EXTRA_DEFS='-DEV_FEATURES=4+8+16+64 -DEV_USE_SELECT=0 -DEV_USE_POLL=1 -DEV_USE_EPOLL=1 -DEV_NO_LOOPS -DEV_COMPAT3=0'
-export PERL_MM_USE_DEFAULT PERL_MM_OPT CORO_INTERFACE EV_EXTRA_DEFS
+#EV_EXTRA_DEFS='-DEV_FEATURES=4+8+16+64 -DEV_USE_SELECT=0 -DEV_USE_POLL=1 -DEV_USE_EPOLL=1 -DEV_NO_LOOPS -DEV_COMPAT3=0'
+export PERL_MM_USE_DEFAULT PERL_MM_OPT
 
 # which extra modules to install by default from CPAN that are
 # required by mkbundle
@@ -80,7 +81,7 @@ PATH="$PERL_PREFIX/perl/bin:$PATH"
 
 # set version in a way that Makefile.PL can extract
 VERSION=VERSION; eval \
-$VERSION="1.31"
+$VERSION="1.4"
 
 BZ2=bz2
 BZIP2=bzip2
@@ -133,7 +134,7 @@ EOF
 # download/configure/compile/install perl
 
 clean() {
-   rm -rf "$STATICPERL/src/perl-$PERL_VERSION"
+   rm -rf "$STATICPERL/src"
 }
 
 realclean() {
@@ -149,9 +150,10 @@ fetch() {
    rcd src
 
    if ! [ -d "perl-$PERL_VERSION" ]; then
-      if ! [ -e "perl-$PERL_VERSION.tar.$BZ2" ]; then
+      PERLTAR=perl-$PERL_VERSION.tar.$BZ2
 
-         URL="$CPAN/src/5.0/perl-$PERL_VERSION.tar.$BZ2"
+      if ! [ -e $PERLTAR ]; then
+         URL="$CPAN/src/5.0/$PERLTAR"
 
          verblock <<EOF
 downloading perl
@@ -161,14 +163,23 @@ trying $URL
 
 either curl or wget is required for automatic download.
 curl is tried first, then wget.
+
+you can configure a download cache directory via DLCACHE
+in your .staticperlrc to avoid repeated downloads.
 EOF
 
-         rm -f perl-$PERL_VERSION.tar.$BZ2~ # just to be on the safe side
-         curl -f >perl-$PERL_VERSION.tar.$BZ2~ "$URL" \
-            || wget -O perl-$PERL_VERSION.tar.$BZ2~ "$URL" \
+         rm -f $PERLTAR~ # just to be on the safe side
+         { [ "$DLCACHE" ] && cp "$DLCACHE"/$PERLTAR $PERLTAR~ >/dev/null 2>&1; } \
+            || wget -O $PERLTAR~ "$URL" \
+            || curl -f >$PERLTAR~ "$URL" \
             || fatal "$URL: unable to download"
-         rm -f perl-$PERL_VERSION.tar.$BZ2
-         mv perl-$PERL_VERSION.tar.$BZ2~ perl-$PERL_VERSION.tar.$BZ2
+         rm -f $PERLTAR
+         mv $PERLTAR~ $PERLTAR
+         if [ "$DLCACHE" ]; then
+            mkdir -p "$DLCACHE"
+            cp $PERLTAR "$DLCACHE"/$PERLTAR~ && \
+               mv "$DLCACHE"/$PERLTAR~ "$DLCACHE"/$PERLTAR
+         fi
       fi
 
       verblock <<EOF
@@ -177,8 +188,8 @@ EOF
 
       mkdir -p unpack
       rm -rf unpack/perl-$PERL_VERSION
-      $BZIP2 -d <perl-$PERL_VERSION.tar.$BZ2 | ( cd unpack && tar xf - ) \
-         || fatal "perl-$PERL_VERSION.tar.$BZ2: error during unpacking"
+      $BZIP2 -d <$PERLTAR | ( cd unpack && tar xf - ) \
+         || fatal "$PERLTAR: error during unpacking"
       chmod -R u+w unpack/perl-$PERL_VERSION
       mv unpack/perl-$PERL_VERSION perl-$PERL_VERSION
       rmdir -p unpack
@@ -291,7 +302,7 @@ EOF
 
    postconfigure || fatal "postconfigure hook failed"
 
-   touch staticstamp.configure
+   : > staticstamp.configure
 }
 
 write_shellscript() {
@@ -319,6 +330,18 @@ EOF
    "$MAKE" || fatal "make: error while building perl"
 
    postbuild || fatal "postbuild hook failed"
+}
+
+_postinstall() {
+   if ! [ -e "$PERL_PREFIX/staticstamp.postinstall" ]; then
+      NOCHECK_INSTALL=+
+      instcpan $STATICPERL_MODULES
+      [ $EXTRA_MODULES ] && instcpan $EXTRA_MODULES
+
+      postinstall || fatal "postinstall hook failed"
+
+      : > "$PERL_PREFIX/staticstamp.postinstall"
+   fi
 }
 
 install() {
@@ -350,8 +373,8 @@ EOF
 
 "$PERL_PREFIX"/bin/SP-patch-postinstall
 
-if find blib/arch/auto -type f | grep -q -v .exists; then
-   echo Probably an XS module, rebuilding perl
+if find blib/arch/auto -type f \( -name "*.a" -o -name "*.obj" -o -name "*.lib" \) | grep -q .; then
+   echo Probably a static XS module, rebuilding perl
    if "$MAKE" all perl; then
       mv perl "$PERL_PREFIX"/bin/perl~ \
          && rm -f "$PERL_PREFIX"/bin/perl \
@@ -408,6 +431,14 @@ patch ExtUtils/MM_Unix.pm mm_unix_pm '
 /^sub staticmake/,/^}/ s/if (@{$self->{C}}) {/if (@{$self->{C}} or $self->{NAME} =~ m%^(Pango|Gtk2)$%) { # patched by staticperl/
 '
 
+# patch ExtUtils::Miniperl to always add DynaLoader
+# this is required for dynamic loading in static perls,
+# and static loading in dynamic perls, when rebuilding a new perl.
+# Why this patch is necessray I don't understand. Yup.
+patch ExtUtils/Miniperl.pm extutils_miniperl.pm '
+/^sub writemain/ a\
+    push @_, canon("/","DynaLoader"); # patched by staticperl
+'
 EOF
 
       "$PERL_PREFIX/bin/SP-patch-postinstall"
@@ -434,18 +465,33 @@ EOF
          CPAN::Shell->o (conf => q<commit>);
       ' || fatal "error while initialising CPAN"
 
-      touch "$PERL_PREFIX/staticstamp.install"
+      : > "$PERL_PREFIX/staticstamp.install"
    fi
 
-   if ! [ -e "$PERL_PREFIX/staticstamp.postinstall" ]; then
-      NOCHECK_INSTALL=+
-      instcpan $STATICPERL_MODULES
-      [ $EXTRA_MODULES ] && instcpan $EXTRA_MODULES
+   _postinstall
+}
 
-      postinstall || fatal "postinstall hook failed"
+import() {
+   IMPORT="$1"
 
-      touch "$PERL_PREFIX/staticstamp.postinstall"
+   rcd "$STATICPERL"
+
+   if ! [ -e "$PERL_PREFIX/staticstamp.install" ]; then
+      verblock <<EOF
+import perl from $IMPORT to $STATICPERL
+EOF
+
+      rm -rf bin cpan lib patched perl src
+      mkdir -m 755 perl perl/bin
+      ln -s perl/bin/ bin
+      ln -s "$IMPORT" perl/bin/
+
+      echo "$IMPORT" > "$PERL_PREFIX/.import"
+
+      : > "$PERL_PREFIX/staticstamp.install"
    fi
+
+   _postinstall
 }
 
 #############################################################################
@@ -459,11 +505,15 @@ installing modules from CPAN
 $@
 EOF
 
-   for mod in "$@"; do
-      "$PERL_PREFIX"/bin/perl -MCPAN::MyConfig -MCPAN -e 'notest install => "'"$mod"'"' \
-         || fatal "$mod: unable to install from CPAN"
-   done
-   rm -rf "$STATICPERL/build"
+   MYCONFIG=
+   [ -e "$PERL_PREFIX/.import" ] || MYCONFIG=-MCPAN::MyConfig
+
+   "$PERL_PREFIX"/bin/perl $MYCONFIG -MCPAN -e 'notest (install => $_) for @ARGV' -- "$@" | tee "$STATICPERL/instcpan.log"
+
+   if grep -q " -- NOT OK\$" "$STATICPERL/instcpan.log"; then
+      fatal "failure while installing modules from CPAN ($@)"
+   fi
+   rm -f "$STATICPERL/instcpan.log"
 }
 
 #############################################################################
@@ -528,15 +578,17 @@ catmkbundle() {
 #############################################################################
 # cannot load modules till after the tracer BEGIN block
 
-our $VERBOSE    = 1;
-our $STRIP      = "pod"; # none, pod or ppi
-our $UNISTRIP   = 1; # always on, try to strip unicore swash data
-our $PERL       = 0;
+our $VERBOSE       = 1;
+our $STRIP         = "pod"; # none, pod or ppi
+our $UNISTRIP      = 1; # always on, try to strip unicore swash data
+our $PERL          = 0;
 our $APP;
-our $VERIFY     = 0;
-our $STATIC     = 0;
-our $PACKLIST   = 0;
-our $IGNORE_ENV = 0;
+our $VERIFY        = 0;
+our $STATIC        = 0;
+our $PACKLIST      = 0;
+our $IGNORE_ENV    = 0;
+our $ALLOW_DYNAMIC = 0;
+our $HAVE_DYNAMIC; # maybe useful?
 
 our $OPTIMISE_SIZE = 0; # optimise for raw file size instead of for compression?
 
@@ -717,14 +769,28 @@ sub dump_string {
    my ($fh, $data) = @_;
 
    if (length $data) {
-      for (
-         my $ofs = 0;
-         length (my $substr = substr $data, $ofs, 80);
-         $ofs += 80
-      )  {
-         $substr =~ s/([^\x20-\x21\x23-\x5b\x5d-\x7e])/sprintf "\\%03o", ord $1/ge;
-         $substr =~ s/\?/\\?/g; # trigraphs...
-         print $fh "  \"$substr\"\n";
+      if ($^O eq "MSWin32") {
+         # 16 bit system, strings can't be longer than 64k. seriously.
+         print $fh "{\n";
+         for (
+            my $ofs = 0;
+            length (my $substr = substr $data, $ofs, 20);
+            $ofs += 20
+         )  {
+            $substr = join ",", map ord, split //, $substr;
+            print $fh "  $substr,\n";
+         }
+         print $fh "   0 }\n";
+      } else {
+         for (
+            my $ofs = 0;
+            length (my $substr = substr $data, $ofs, 80);
+            $ofs += 80
+         )  {
+            $substr =~ s/([^\x20-\x21\x23-\x5b\x5d-\x7e])/sprintf "\\%03o", ord $1/ge;
+            $substr =~ s/\?/\\?/g; # trigraphs...
+            print $fh "  \"$substr\"\n";
+         }
       }
    } else {
       print $fh "  \"\"\n";
@@ -801,7 +867,7 @@ sub get_inctrees {
 #############################################################################
 
 sub cmd_boot {
-   $pm{"&&boot"} = $_[0];
+   $pm{"!boot"} = $_[0];
 }
 
 sub cmd_add {
@@ -884,6 +950,7 @@ sub parse_argv {
 
       "static!"       => \$STATIC,
       "staticlib=s"   => sub { cmd_staticlib $_[1] },
+      "allow-dynamic!"=> \$ALLOW_DYNAMIC,
       "ignore-env"    => \$IGNORE_ENV,
 
       "<>"            => sub { cmd_file      $_[0] },
@@ -1002,8 +1069,20 @@ for my $pm (keys %pm) {
          }
 
          # dynamic object
-         die "ERROR: found shared object - can't link statically ($_)\n"
-            if -f "$autodir/$base.$Config{dlext}";
+         if (-f "$autodir/$base.$Config{dlext}") {
+            if ($ALLOW_DYNAMIC) {
+               my $as = "!$auto/$base.$Config{dlext}";
+               $pm{$as} = "$autodir/$base.$Config{dlext}";
+               $pmbin{$as} = 1;
+
+               $HAVE_DYNAMIC = 1;
+
+               print "+ added dynamic object $as\n"
+                  if $VERBOSE >= 3;
+            } else {
+               die "ERROR: found shared object '$autodir/$base.$Config{dlext}' but --allow-dynamic not given, aborting.\n"
+            }
+         }
 
          if ($PACKLIST && open my $fh, "<:perlio", "$autodir/.packlist") {
             print "found .packlist for $pm\n"
@@ -1330,27 +1409,66 @@ print $fh ";\n\n";
 # boot file for staticperl
 # this file will be eval'ed at initialisation time
 
+# lines marked with "^D" are only used when $HAVE_DYNAMIC
 my $bootstrap = '
 BEGIN {
    package ' . $PACKAGE . ';
 
-   PerlIO::scalar->bootstrap;
+   # the path prefix to use when putting files into %INC
+   our $inc_prefix;
 
-   @INC = sub {
+   # the @INC hook to use when we have PerlIO::scalar available
+   my $perlio_inc =  sub {
       my $data = find "$_[1]"
          or return;
 
-      $INC{$_[1]} = $_[1];
+      $INC{$_[1]} = "$inc_prefix$_[1]";
 
       open my $fh, "<", \$data;
       $fh
    };
+
+D  if (defined &PerlIO::scalar::bootstrap) {
+      # PerlIO::scalar statically compiled in
+      PerlIO::scalar->bootstrap;
+      @INC = $perlio_inc;
+D  } else {
+D     # PerlIO::scalar not available, use slower method
+D     @INC = sub {
+D        # always check if PerlIO::scalar might now be available
+D        if (defined &PerlIO::scalar::bootstrap) {
+D           # switch to the faster perlio_inc hook
+D           @INC = map { $_ == $_[0] ? $perlio_inc : $_ } @INC;
+D           goto &$perlio_inc;
+D        }
+D
+D        my $data = find "$_[1]"
+D           or return;
+D
+D        $INC{$_[1]} = "$inc_prefix$_[1]";
+D
+D        sub {
+D           $data =~ /\G([^\n]*\n?)/g
+D              or return;
+D
+D           $_ = $1;
+D           1
+D        }
+D     };
+D  }
 }
 ';
 
-$bootstrap .= "require '&&boot';"
-   if exists $pm{"&&boot"};
+$bootstrap .= "require '!boot';"
+   if exists $pm{"!boot"};
 
+if ($HAVE_DYNAMIC) {
+   $bootstrap =~ s/^D/ /mg;
+} else {
+   $bootstrap =~ s/^D.*$//mg;
+}
+
+$bootstrap =~ s/#.*$//mg;
 $bootstrap =~ s/\s+/ /g;
 $bootstrap =~ s/(\W) /$1/g;
 $bootstrap =~ s/ (\W)/$1/g;
@@ -1406,8 +1524,7 @@ XS(find)
     XSRETURN (0);
 
   found:
-    ST (0) = res;
-    sv_2mortal (ST (0));
+    ST (0) = sv_2mortal (res);
   }
 
   XSRETURN (1);
@@ -1430,7 +1547,7 @@ XS(list)
       {
         U32 idx = $varpfx\_index [i];
 
-        PUSHs (newSVpvn ($varpfx\_data + (idx & 0x1FFFFFFU), idx >> 25));
+        PUSHs (sv_2mortal (newSVpvn ($varpfx\_data + (idx & 0x1FFFFFFU), idx >> 25)));
       }
   }
 
@@ -1448,7 +1565,7 @@ staticperl_xs_init (pTHX)
 {
 EOF
 
-@static_ext = ("DynaLoader", sort @static_ext);
+@static_ext = sort @static_ext;
 
 # prototypes
 for (@static_ext) {
@@ -1472,13 +1589,23 @@ for (@static_ext) {
    (my $cname = $_) =~ s/\//__/g;
    (my $pname = $_) =~ s/\//::/g;
 
-   my $bootstrap = $pname eq "DynaLoader" ? "boot" : "bootstrap";
+   my $bootstrap = $pname eq "DynaLoader" ? "boot_DynaLoader" : "bootstrap";
 
    print $fh "  newXS (\"$pname\::$bootstrap\", boot_$cname, file);\n";
 }
 
 print $fh <<EOF;
-  Perl_av_create_and_unshift_one (&PL_preambleav, newSVpv (bootstrap, sizeof (bootstrap) - 1));
+  #ifdef _WIN32
+    /* windows perls usually trail behind unix perls 8-10 years in exporting symbols */
+
+    if (!PL_preambleav)
+      PL_preambleav = newAV ();
+
+    av_unshift (PL_preambleav, 1);
+    av_store (PL_preambleav, 0, newSVpv (bootstrap, sizeof (bootstrap) - 1));
+  #else
+    Perl_av_create_and_unshift_one (&PL_preambleav, newSVpv (bootstrap, sizeof (bootstrap) - 1));
+  #endif
 
   if (PL_oldname)
     ((XSINIT_t)PL_oldname)(aTHX);
@@ -1607,61 +1734,72 @@ staticperl_cleanup (void)
 EOF
 }
 
+close $fh;
+
 print -s "$PREFIX.c", " octets (", (length $data) , " data octets).\n\n"
    if $VERBOSE >= 1;
 
 #############################################################################
 # libs, cflags
 
+my $ccopts;
+
 {
    print "generating $PREFIX.ccopts... "
       if $VERBOSE >= 1;
 
-   my $str = "$Config{ccflags} $Config{optimize} $Config{cppflags} -I$Config{archlibexp}/CORE";
-   $str =~ s/([\(\)])/\\$1/g;
+   $ccopts = "$Config{ccflags} $Config{optimize} $Config{cppflags} -I$Config{archlibexp}/CORE";
+   $ccopts =~ s/([\(\)])/\\$1/g;
 
    open my $fh, ">$PREFIX.ccopts"
       or die "$PREFIX.ccopts: $!";
-   print $fh $str;
+   print $fh $ccopts;
 
-   print "$str\n\n"
+   print "$ccopts\n\n"
       if $VERBOSE >= 1;
 }
+
+my $ldopts;
 
 {
    print "generating $PREFIX.ldopts... ";
 
-   my $str = $STATIC ? "-static " : "";
+   $ldopts = $STATIC ? "-static " : "";
 
-   $str .= "$Config{ccdlflags} $Config{ldflags} @libs $Config{archlibexp}/CORE/$Config{libperl} $Config{perllibs}";
+   $ldopts .= "$Config{ccdlflags} $Config{ldflags} @libs $Config{archlibexp}/CORE/$Config{libperl} $Config{perllibs}";
 
    my %seen;
-   $str .= " $_" for grep !$seen{$_}++, ($extralibs =~ /(\S+)/g);
+   $ldopts .= " $_" for reverse grep !$seen{$_}++, reverse +($extralibs =~ /(\S+)/g);
 
    for (@staticlibs) {
-      $str =~ s/(^|\s) (-l\Q$_\E) ($|\s)/$1-Wl,-Bstatic $2 -Wl,-Bdynamic$3/gx;
+      $ldopts =~ s/(^|\s) (-l\Q$_\E) ($|\s)/$1-Wl,-Bstatic $2 -Wl,-Bdynamic$3/gx;
    }
 
-   $str =~ s/([\(\)])/\\$1/g;
+   $ldopts =~ s/([\(\)])/\\$1/g;
 
    open my $fh, ">$PREFIX.ldopts"
       or die "$PREFIX.ldopts: $!";
-   print $fh $str;
+   print $fh $ldopts;
 
-   print "$str\n\n"
+   print "$ldopts\n\n"
       if $VERBOSE >= 1;
 }
 
 if ($PERL or defined $APP) {
    $APP = "perl" unless defined $APP;
 
-   print "building $APP...\n"
+   my $build = "$Config{cc} $ccopts -o \Q$APP\E$Config{_exe} bundle.c $ldopts";
+
+   print "build $APP...\n"
       if $VERBOSE >= 1;
 
-   system "$Config{cc} \$(cat bundle.ccopts\) -o \Q$APP\E bundle.c \$(cat bundle.ldopts\)";
+   print "$build\n"
+      if $VERBOSE >= 2;
 
-   unlink "$PREFIX.$_"
-      for qw(ccopts ldopts c h);
+   system $build;
+
+#   unlink "$PREFIX.$_"
+#      for qw(ccopts ldopts c h);
 
    print "\n"
       if $VERBOSE >= 1;
@@ -1689,8 +1827,12 @@ if [ $# -gt 0 ]; then
          version )
             echo "staticperl version $VERSION"
             ;;
-         fetch | configure | build | install | clean | realclean | distclean)
+         fetch | configure | build | install | clean | realclean | distclean )
             ( "$command" ) || exit
+            ;;
+         import )
+            ( import "$1" ) || exit
+            shift
             ;;
          instsrc )
             ( instsrc "$@" ) || exit
@@ -1707,6 +1849,8 @@ if [ $# -gt 0 ]; then
             ;;
          cpan )
             ( install ) || exit
+            PERL="$PERL_PREFIX/bin/perl"
+            export PERL
             exec "$PERL_PREFIX/bin/cpan" "$@"
             exit
             ;;
@@ -1757,7 +1901,7 @@ staticperl - perl, libc, 100 modules, all in one 500kb file
    staticperl distclean # delete everything installed by this script
    staticperl perl ...  # invoke the perlinterpreter
    staticperl cpan      # invoke CPAN shell
-   staticperl instmod path...        # install unpacked modules
+   staticperl instsrc path...        # install unpacked modules
    staticperl instcpan modulename... # install modules from CPAN
    staticperl mkbundle <bundle-args...> # see documentation
    staticperl mkperl <bundle-args...>   # see documentation
@@ -1830,7 +1974,7 @@ compile-time dependencies and L<AutoLoader> are handled automatically.
 This means the modules to include often need to be tweaked manually.
 
 All this does not preclude more permissive modes to be implemented in
-the future, but right now, you have to resolve state hidden dependencies
+the future, but right now, you have to resolve hidden dependencies
 manually.
 
 =item * PAR works out of the box, F<staticperl> does not.
@@ -1948,7 +2092,9 @@ Example: check that the Gtk2 module is installed and loadable.
 Starts an interactive CPAN shell that you can use to install further
 modules. Installs the perl first if necessary, but apart from that,
 no magic is involved: you could just as well run it manually via
-F<~/.staticperl/perl/bin/cpan>.
+F<~/.staticperl/perl/bin/cpan>, except that F<staticperl> additionally
+sets the environment variable C<$PERL> to the path of the perl
+interpreter, which is handy in subshells.
 
 Any additional arguments are simply passed to the F<cpan> command.
 
@@ -2293,16 +2439,16 @@ Just like C<--add>, except that it treats the file as binary and adds it
 without any postprocessing (perl files might get stripped to reduce their
 size).
 
-If you specify an alias you should probably add a C<&> prefix to avoid
-clashing with embedded perl files (whose paths never start with C<&>),
-and/or use a special directory prefix, such as C<&res/name>.
+If you specify an alias you should probably add a C</> prefix to avoid
+clashing with embedded perl files (whose paths never start with C</>),
+and/or use a special directory prefix, such as C</res/name>.
 
-You can later get a copy of these files by calling C<staticperl::find
+You can later get a copy of these files by calling C<static::find
 "alias">.
 
 An alternative way to embed binary files is to convert them to perl and
 use C<do> to get the contents - this method is a bit cumbersome, but works
-both inside and outside of a staticperl bundle:
+both inside and outside of a staticperl bundle, without extra ado:
 
    # a "binary" file, call it "bindata.pl"
    <<'SOME_MARKER'
@@ -2311,6 +2457,23 @@ both inside and outside of a staticperl bundle:
 
    # load the binary
    chomp (my $data = do "bindata.pl");
+
+=item C<--allow-dynamic>
+
+By default, when F<mkbundle> hits a dynamic perl extension (e.g. a F<.so>
+or F<.dll> file), it will stop with a fatal error.
+
+When this option is enabled, F<mkbundle> packages the shared
+object into the bundle instead, with a prefix of F<!>
+(e.g. F<!auto/List/Util/Util.so>). What you do with that is currently up
+to you, F<staticperl> has no special support for this at the moment, apart
+from working around the lack of availability of F<PerlIO::scalar> while
+bootstrapping, at a speed cost.
+
+One way to deal with this is to write all files starting with F<!> into
+some directory and then C<unshift> that path onto C<@INC>.
+
+#TODO: example
 
 =back
 
@@ -2628,17 +2791,24 @@ more.
 The directory where staticperl stores all its files
 (default: F<~/.staticperl>).
 
-=item C<PERL_MM_USE_DEFAULT>, C<EV_EXTRA_DEFS>, ...
+=item C<DLCACHE>
 
-Usually set to C<1> to make modules "less inquisitive" during their
-installation, you can set any environment variable you want - some modules
-(such as L<Coro> or L<EV>) use environment variables for further tweaking.
+The path to a directory (will be created if it doesn't exist) where
+downloaded perl sources are being cached, to avoid downloading them
+again. The default is empty, which means there is no cache.
 
 =item C<PERL_VERSION>
 
 The perl version to install - default is currently C<5.12.3>, but C<5.8.9>
 is also a good choice (5.8.9 is much smaller than 5.12.3, while 5.10.1 is
 about as big as 5.12.3).
+
+=item C<PERL_MM_USE_DEFAULT>, C<EV_EXTRA_DEFS>, ...
+
+Usually set to C<1> to make modules "less inquisitive" during their
+installation. You can set (and export!) any environment variable you want
+- some modules (such as L<Coro> or L<EV>) use environment variables for
+further tweaking.
 
 =item C<PERL_PREFIX>
 
@@ -2669,10 +2839,23 @@ F<~/.staticperlrc> to override them.
 Most of the variables override (or modify) the corresponding F<Configure>
 variable, except C<PERL_CCFLAGS>, which gets appended.
 
-You should have a look near the beginning of the F<staticperl> script -
-staticperl tries to default C<PERL_OPTIMIZE> to some psace-saving options
-suitable for newer gcc versions. For other compilers or older versions you
-need to adjust these, for example, in your F<~/.staticperlrc>.
+The default for C<PERL_OPTIMIZE> is C<-Os> (assuming gcc), and for
+C<PERL_LIBS> is C<-lm -lcrypt>, which should be good for most (but not
+all) systems.
+
+For other compilers or more customised optimisation settings, you need to
+adjust these, e.g. in your F<~/.staticperlrc>.
+
+With gcc on x86 and amd64, you can get more space-savings by using:
+
+   -Os -ffunction-sections -fdata-sections -finline-limit=8 -mpush-args
+   -mno-inline-stringops-dynamically -mno-align-stringops
+
+And on x86 and pentium3 and newer (basically everything you might ever
+want to run on), adding these is even better for space-savings (use
+-mtune=core2 or something newer for much faster code, too):
+
+   -fomit-frame-pointer -march=pentium3 -mtune=i386
 
 =back
 
@@ -2861,28 +3044,79 @@ The linker options needed to link the final program.
 
 =head1 RUNTIME FUNCTIONALITY
 
-Binaries created with C<mkbundle>/C<mkperl> contain extra functions, which
-are required to access the bundled perl sources, but might be useful for
-other purposes.
+Binaries created with C<mkbundle>/C<mkperl> contain extra functionality,
+mostly related to the extra files bundled in the binary (the virtual
+filesystem). All of this data is statically compiled into the binary, and
+accessing means copying it from a read-only section of your binary. Data
+pages in this way is usually freed by the operating system, as it isn't
+use more the onace.
 
-In addition, for the embedded loading of perl files to work, F<staticperl>
-overrides the C<@INC> array.
+=head2 VIRTUAL FILESYSTEM
+
+Every bundle has a virtual filesystem. The only information stored in it
+is the path and contents of each file that was bundled.
+
+=head3 LAYOUT
+
+Any path starting with an ampersand (F<&>) or exclamation mark (F<!>) are
+reserved by F<staticperl>. They must only be used as described in this
+section.
 
 =over 4
 
-=item $file = staticperl::find $path
+=item !
+
+All files that typically cannot be loaded from memory (such as dynamic
+objects or shared libraries), but have to reside in the filesystem, are
+prefixed with F<!>. Typically these files get written out to some
+(semi-)temporary directory shortly after program startup, or before being
+used.
+
+=item !boot
+
+The bootstrap file, if specified during bundling.
+
+=item !auto/
+
+Shared objects or dlls corresponding to dynamically-linked perl extensions
+are stored with an F<!auto/> prefix.
+
+=item !lib/
+
+External shared libraries are stored in this directory.
+
+=item any letter
+
+Any path starting with a letter is a perl library file. For example,
+F<Coro/AIO.pm> corresponds to the file loaded by C<use Coro::AIO>, and
+F<Coro/jit.pl> corresponds to C<require "Coro/jit.pl">. 
+
+Obviously, module names shouldn't start with any other characters than
+letters :)
+
+=back
+
+=head3 FUNCTIONS
+
+=over 4
+
+=item $file = static::find $path
 
 Returns the data associated with the given C<$path>
-(e.g. C<Digest/MD5.pm>, C<auto/POSIX/autosplit.ix>), which is basically
-the UNIX path relative to the perl library directory.
+(e.g. C<Digest/MD5.pm>, C<auto/POSIX/autosplit.ix>).
 
 Returns C<undef> if the file isn't embedded.
 
-=item @paths = staticperl::list
+=item @paths = static::list
 
 Returns the list of all paths embedded in this binary.
 
 =back
+
+=head2 EXTRA FEATURES
+
+In addition, for the embedded loading of perl files to work, F<staticperl>
+overrides the C<@INC> array.
 
 =head1 FULLY STATIC BINARIES - UCLIBC AND BUILDROOT
 
@@ -2913,7 +3147,7 @@ twice the address space needed for stacks).
 If you use C<linuxthreads.old>, then you should also be aware that
 uClibc shares C<errno> between all threads when statically linking. See
 L<http://lists.uclibc.org/pipermail/uclibc/2010-June/044157.html> for a
-workaround (And L<https://bugs.uclibc.org/2089> for discussion).
+workaround (and L<https://bugs.uclibc.org/2089> for discussion).
 
 C<ccache> support is also recommended, especially if you want
 to play around with buildroot options. Enabling the C<miniperl>
@@ -2931,12 +3165,12 @@ F</bin/sh> inside the chroot) or link busybox to F</bin/sh>, using it's
 built-in ash shell.
 
 Finally, you need F</dev/null> inside the chroot for many scripts to work
-- F<cp /dev/null output/target/dev> or bind-mounting your F</dev> will
-both provide this.
+- either F<cp /dev/null output/target/dev> or bind-mounting your F</dev>
+will provide this.
 
 After you have compiled and set up your buildroot target, you can copy
 F<staticperl> from the C<App::Staticperl> distribution or from your
-perl f<bin> directory (if you installed it) into the F<output/target>
+perl F<bin> directory (if you installed it) into the F<output/target>
 filesystem, chroot inside and run it.
 
 =head1 RECIPES / SPECIFIC MODULES

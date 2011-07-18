@@ -13,7 +13,7 @@ staticperl - perl, libc, 100 modules, all in one 500kb file
    staticperl distclean # delete everything installed by this script
    staticperl perl ...  # invoke the perlinterpreter
    staticperl cpan      # invoke CPAN shell
-   staticperl instmod path...        # install unpacked modules
+   staticperl instsrc path...        # install unpacked modules
    staticperl instcpan modulename... # install modules from CPAN
    staticperl mkbundle <bundle-args...> # see documentation
    staticperl mkperl <bundle-args...>   # see documentation
@@ -86,7 +86,7 @@ compile-time dependencies and L<AutoLoader> are handled automatically.
 This means the modules to include often need to be tweaked manually.
 
 All this does not preclude more permissive modes to be implemented in
-the future, but right now, you have to resolve state hidden dependencies
+the future, but right now, you have to resolve hidden dependencies
 manually.
 
 =item * PAR works out of the box, F<staticperl> does not.
@@ -204,7 +204,9 @@ Example: check that the Gtk2 module is installed and loadable.
 Starts an interactive CPAN shell that you can use to install further
 modules. Installs the perl first if necessary, but apart from that,
 no magic is involved: you could just as well run it manually via
-F<~/.staticperl/perl/bin/cpan>.
+F<~/.staticperl/perl/bin/cpan>, except that F<staticperl> additionally
+sets the environment variable C<$PERL> to the path of the perl
+interpreter, which is handy in subshells.
 
 Any additional arguments are simply passed to the F<cpan> command.
 
@@ -549,16 +551,16 @@ Just like C<--add>, except that it treats the file as binary and adds it
 without any postprocessing (perl files might get stripped to reduce their
 size).
 
-If you specify an alias you should probably add a C<&> prefix to avoid
-clashing with embedded perl files (whose paths never start with C<&>),
-and/or use a special directory prefix, such as C<&res/name>.
+If you specify an alias you should probably add a C</> prefix to avoid
+clashing with embedded perl files (whose paths never start with C</>),
+and/or use a special directory prefix, such as C</res/name>.
 
-You can later get a copy of these files by calling C<staticperl::find
+You can later get a copy of these files by calling C<static::find
 "alias">.
 
 An alternative way to embed binary files is to convert them to perl and
 use C<do> to get the contents - this method is a bit cumbersome, but works
-both inside and outside of a staticperl bundle:
+both inside and outside of a staticperl bundle, without extra ado:
 
    # a "binary" file, call it "bindata.pl"
    <<'SOME_MARKER'
@@ -567,6 +569,23 @@ both inside and outside of a staticperl bundle:
 
    # load the binary
    chomp (my $data = do "bindata.pl");
+
+=item C<--allow-dynamic>
+
+By default, when F<mkbundle> hits a dynamic perl extension (e.g. a F<.so>
+or F<.dll> file), it will stop with a fatal error.
+
+When this option is enabled, F<mkbundle> packages the shared
+object into the bundle instead, with a prefix of F<!>
+(e.g. F<!auto/List/Util/Util.so>). What you do with that is currently up
+to you, F<staticperl> has no special support for this at the moment, apart
+from working around the lack of availability of F<PerlIO::scalar> while
+bootstrapping, at a speed cost.
+
+One way to deal with this is to write all files starting with F<!> into
+some directory and then C<unshift> that path onto C<@INC>.
+
+#TODO: example
 
 =back
 
@@ -884,17 +903,24 @@ more.
 The directory where staticperl stores all its files
 (default: F<~/.staticperl>).
 
-=item C<PERL_MM_USE_DEFAULT>, C<EV_EXTRA_DEFS>, ...
+=item C<DLCACHE>
 
-Usually set to C<1> to make modules "less inquisitive" during their
-installation, you can set any environment variable you want - some modules
-(such as L<Coro> or L<EV>) use environment variables for further tweaking.
+The path to a directory (will be created if it doesn't exist) where
+downloaded perl sources are being cached, to avoid downloading them
+again. The default is empty, which means there is no cache.
 
 =item C<PERL_VERSION>
 
 The perl version to install - default is currently C<5.12.3>, but C<5.8.9>
 is also a good choice (5.8.9 is much smaller than 5.12.3, while 5.10.1 is
 about as big as 5.12.3).
+
+=item C<PERL_MM_USE_DEFAULT>, C<EV_EXTRA_DEFS>, ...
+
+Usually set to C<1> to make modules "less inquisitive" during their
+installation. You can set (and export!) any environment variable you want
+- some modules (such as L<Coro> or L<EV>) use environment variables for
+further tweaking.
 
 =item C<PERL_PREFIX>
 
@@ -925,10 +951,23 @@ F<~/.staticperlrc> to override them.
 Most of the variables override (or modify) the corresponding F<Configure>
 variable, except C<PERL_CCFLAGS>, which gets appended.
 
-You should have a look near the beginning of the F<staticperl> script -
-staticperl tries to default C<PERL_OPTIMIZE> to some psace-saving options
-suitable for newer gcc versions. For other compilers or older versions you
-need to adjust these, for example, in your F<~/.staticperlrc>.
+The default for C<PERL_OPTIMIZE> is C<-Os> (assuming gcc), and for
+C<PERL_LIBS> is C<-lm -lcrypt>, which should be good for most (but not
+all) systems.
+
+For other compilers or more customised optimisation settings, you need to
+adjust these, e.g. in your F<~/.staticperlrc>.
+
+With gcc on x86 and amd64, you can get more space-savings by using:
+
+   -Os -ffunction-sections -fdata-sections -finline-limit=8 -mpush-args
+   -mno-inline-stringops-dynamically -mno-align-stringops
+
+And on x86 and pentium3 and newer (basically everything you might ever
+want to run on), adding these is even better for space-savings (use
+-mtune=core2 or something newer for much faster code, too):
+
+   -fomit-frame-pointer -march=pentium3 -mtune=i386
 
 =back
 
@@ -1117,28 +1156,79 @@ The linker options needed to link the final program.
 
 =head1 RUNTIME FUNCTIONALITY
 
-Binaries created with C<mkbundle>/C<mkperl> contain extra functions, which
-are required to access the bundled perl sources, but might be useful for
-other purposes.
+Binaries created with C<mkbundle>/C<mkperl> contain extra functionality,
+mostly related to the extra files bundled in the binary (the virtual
+filesystem). All of this data is statically compiled into the binary, and
+accessing means copying it from a read-only section of your binary. Data
+pages in this way is usually freed by the operating system, as it isn't
+use more the onace.
 
-In addition, for the embedded loading of perl files to work, F<staticperl>
-overrides the C<@INC> array.
+=head2 VIRTUAL FILESYSTEM
+
+Every bundle has a virtual filesystem. The only information stored in it
+is the path and contents of each file that was bundled.
+
+=head3 LAYOUT
+
+Any path starting with an ampersand (F<&>) or exclamation mark (F<!>) are
+reserved by F<staticperl>. They must only be used as described in this
+section.
 
 =over 4
 
-=item $file = staticperl::find $path
+=item !
+
+All files that typically cannot be loaded from memory (such as dynamic
+objects or shared libraries), but have to reside in the filesystem, are
+prefixed with F<!>. Typically these files get written out to some
+(semi-)temporary directory shortly after program startup, or before being
+used.
+
+=item !boot
+
+The bootstrap file, if specified during bundling.
+
+=item !auto/
+
+Shared objects or dlls corresponding to dynamically-linked perl extensions
+are stored with an F<!auto/> prefix.
+
+=item !lib/
+
+External shared libraries are stored in this directory.
+
+=item any letter
+
+Any path starting with a letter is a perl library file. For example,
+F<Coro/AIO.pm> corresponds to the file loaded by C<use Coro::AIO>, and
+F<Coro/jit.pl> corresponds to C<require "Coro/jit.pl">. 
+
+Obviously, module names shouldn't start with any other characters than
+letters :)
+
+=back
+
+=head3 FUNCTIONS
+
+=over 4
+
+=item $file = static::find $path
 
 Returns the data associated with the given C<$path>
-(e.g. C<Digest/MD5.pm>, C<auto/POSIX/autosplit.ix>), which is basically
-the UNIX path relative to the perl library directory.
+(e.g. C<Digest/MD5.pm>, C<auto/POSIX/autosplit.ix>).
 
 Returns C<undef> if the file isn't embedded.
 
-=item @paths = staticperl::list
+=item @paths = static::list
 
 Returns the list of all paths embedded in this binary.
 
 =back
+
+=head2 EXTRA FEATURES
+
+In addition, for the embedded loading of perl files to work, F<staticperl>
+overrides the C<@INC> array.
 
 =head1 FULLY STATIC BINARIES - UCLIBC AND BUILDROOT
 
@@ -1169,7 +1259,7 @@ twice the address space needed for stacks).
 If you use C<linuxthreads.old>, then you should also be aware that
 uClibc shares C<errno> between all threads when statically linking. See
 L<http://lists.uclibc.org/pipermail/uclibc/2010-June/044157.html> for a
-workaround (And L<https://bugs.uclibc.org/2089> for discussion).
+workaround (and L<https://bugs.uclibc.org/2089> for discussion).
 
 C<ccache> support is also recommended, especially if you want
 to play around with buildroot options. Enabling the C<miniperl>
@@ -1187,12 +1277,12 @@ F</bin/sh> inside the chroot) or link busybox to F</bin/sh>, using it's
 built-in ash shell.
 
 Finally, you need F</dev/null> inside the chroot for many scripts to work
-- F<cp /dev/null output/target/dev> or bind-mounting your F</dev> will
-both provide this.
+- either F<cp /dev/null output/target/dev> or bind-mounting your F</dev>
+will provide this.
 
 After you have compiled and set up your buildroot target, you can copy
 F<staticperl> from the C<App::Staticperl> distribution or from your
-perl f<bin> directory (if you installed it) into the F<output/target>
+perl F<bin> directory (if you installed it) into the F<output/target>
 filesystem, chroot inside and run it.
 
 =head1 RECIPES / SPECIFIC MODULES

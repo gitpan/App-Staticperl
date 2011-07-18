@@ -1,32 +1,33 @@
 #!/bin/sh
 
 #############################################################################
-# configuration to fill in
+# configuration to fill in (or to replace in your .staticperlrc)
 
 STATICPERL=~/.staticperl
 CPAN=http://mirror.netcologne.de/cpan # which mirror to use
 EMAIL="read the documentation <rtfm@example.org>"
+DLCACHE=
 
 # perl build variables
 MAKE=make
-PERL_VERSION=5.12.3 # 5.8.9 is also a good choice
+PERL_VERSION=5.12.4 # 5.8.9 is also a good choice
 PERL_CC=cc
 PERL_CONFIGURE="" # additional Configure arguments
 PERL_CCFLAGS="-g -DPERL_DISABLE_PMC -DPERL_ARENA_SIZE=16376 -DNO_PERL_MALLOC_ENV -D_GNU_SOURCE -DNDEBUG"
-PERL_OPTIMIZE="-Os -ffunction-sections -fdata-sections -finline-limit=8 -ffast-math"
+PERL_OPTIMIZE="-Os" # -Os -ffunction-sections -fdata-sections -finline-limit=8 -ffast-math"
 
 ARCH="$(uname -m)"
 
-case "$ARCH" in
-   i*86 | x86_64 | amd64 )
-      PERL_OPTIMIZE="$PERL_OPTIMIZE -mpush-args -mno-inline-stringops-dynamically -mno-align-stringops -mno-ieee-fp" # x86/amd64
-      case "$ARCH" in
-         i*86 )
-            PERL_OPTIMIZE="$PERL_OPTIMIZE -fomit-frame-pointer -march=pentium3 -mtune=i386" # x86 only
-            ;;
-      esac
-      ;;
-esac
+#case "$ARCH" in
+#   i*86 | x86_64 | amd64 )
+#      PERL_OPTIMIZE="$PERL_OPTIMIZE -mpush-args -mno-inline-stringops-dynamically -mno-align-stringops -mno-ieee-fp" # x86/amd64
+#      case "$ARCH" in
+#         i*86 )
+#            PERL_OPTIMIZE="$PERL_OPTIMIZE -fomit-frame-pointer -march=pentium3 -mtune=i386" # x86 only
+#            ;;
+#      esac
+#      ;;
+#esac
 
 # -Wl,--gc-sections makes it impossible to check for undefined references
 # for some reason so we need to patch away the "-no" after Configure and before make :/
@@ -39,8 +40,8 @@ PERL_LIBS="-lm -lcrypt" # perl loves to add lotsa crap itself
 PERL_MM_USE_DEFAULT=1
 PERL_MM_OPT="MAN1PODS= MAN3PODS="
 #CORO_INTERFACE=p # needed without nptl on x86, due to bugs in linuxthreads - very slow
-EV_EXTRA_DEFS='-DEV_FEATURES=4+8+16+64 -DEV_USE_SELECT=0 -DEV_USE_POLL=1 -DEV_USE_EPOLL=1 -DEV_NO_LOOPS -DEV_COMPAT3=0'
-export PERL_MM_USE_DEFAULT PERL_MM_OPT CORO_INTERFACE EV_EXTRA_DEFS
+#EV_EXTRA_DEFS='-DEV_FEATURES=4+8+16+64 -DEV_USE_SELECT=0 -DEV_USE_POLL=1 -DEV_USE_EPOLL=1 -DEV_NO_LOOPS -DEV_COMPAT3=0'
+export PERL_MM_USE_DEFAULT PERL_MM_OPT
 
 # which extra modules to install by default from CPAN that are
 # required by mkbundle
@@ -80,7 +81,7 @@ PATH="$PERL_PREFIX/perl/bin:$PATH"
 
 # set version in a way that Makefile.PL can extract
 VERSION=VERSION; eval \
-$VERSION="1.31"
+$VERSION="1.4"
 
 BZ2=bz2
 BZIP2=bzip2
@@ -133,7 +134,7 @@ EOF
 # download/configure/compile/install perl
 
 clean() {
-   rm -rf "$STATICPERL/src/perl-$PERL_VERSION"
+   rm -rf "$STATICPERL/src"
 }
 
 realclean() {
@@ -149,9 +150,10 @@ fetch() {
    rcd src
 
    if ! [ -d "perl-$PERL_VERSION" ]; then
-      if ! [ -e "perl-$PERL_VERSION.tar.$BZ2" ]; then
+      PERLTAR=perl-$PERL_VERSION.tar.$BZ2
 
-         URL="$CPAN/src/5.0/perl-$PERL_VERSION.tar.$BZ2"
+      if ! [ -e $PERLTAR ]; then
+         URL="$CPAN/src/5.0/$PERLTAR"
 
          verblock <<EOF
 downloading perl
@@ -161,14 +163,23 @@ trying $URL
 
 either curl or wget is required for automatic download.
 curl is tried first, then wget.
+
+you can configure a download cache directory via DLCACHE
+in your .staticperlrc to avoid repeated downloads.
 EOF
 
-         rm -f perl-$PERL_VERSION.tar.$BZ2~ # just to be on the safe side
-         curl -f >perl-$PERL_VERSION.tar.$BZ2~ "$URL" \
-            || wget -O perl-$PERL_VERSION.tar.$BZ2~ "$URL" \
+         rm -f $PERLTAR~ # just to be on the safe side
+         { [ "$DLCACHE" ] && cp "$DLCACHE"/$PERLTAR $PERLTAR~ >/dev/null 2>&1; } \
+            || wget -O $PERLTAR~ "$URL" \
+            || curl -f >$PERLTAR~ "$URL" \
             || fatal "$URL: unable to download"
-         rm -f perl-$PERL_VERSION.tar.$BZ2
-         mv perl-$PERL_VERSION.tar.$BZ2~ perl-$PERL_VERSION.tar.$BZ2
+         rm -f $PERLTAR
+         mv $PERLTAR~ $PERLTAR
+         if [ "$DLCACHE" ]; then
+            mkdir -p "$DLCACHE"
+            cp $PERLTAR "$DLCACHE"/$PERLTAR~ && \
+               mv "$DLCACHE"/$PERLTAR~ "$DLCACHE"/$PERLTAR
+         fi
       fi
 
       verblock <<EOF
@@ -177,8 +188,8 @@ EOF
 
       mkdir -p unpack
       rm -rf unpack/perl-$PERL_VERSION
-      $BZIP2 -d <perl-$PERL_VERSION.tar.$BZ2 | ( cd unpack && tar xf - ) \
-         || fatal "perl-$PERL_VERSION.tar.$BZ2: error during unpacking"
+      $BZIP2 -d <$PERLTAR | ( cd unpack && tar xf - ) \
+         || fatal "$PERLTAR: error during unpacking"
       chmod -R u+w unpack/perl-$PERL_VERSION
       mv unpack/perl-$PERL_VERSION perl-$PERL_VERSION
       rmdir -p unpack
@@ -291,7 +302,7 @@ EOF
 
    postconfigure || fatal "postconfigure hook failed"
 
-   touch staticstamp.configure
+   : > staticstamp.configure
 }
 
 write_shellscript() {
@@ -319,6 +330,18 @@ EOF
    "$MAKE" || fatal "make: error while building perl"
 
    postbuild || fatal "postbuild hook failed"
+}
+
+_postinstall() {
+   if ! [ -e "$PERL_PREFIX/staticstamp.postinstall" ]; then
+      NOCHECK_INSTALL=+
+      instcpan $STATICPERL_MODULES
+      [ $EXTRA_MODULES ] && instcpan $EXTRA_MODULES
+
+      postinstall || fatal "postinstall hook failed"
+
+      : > "$PERL_PREFIX/staticstamp.postinstall"
+   fi
 }
 
 install() {
@@ -376,18 +399,33 @@ EOF
          CPAN::Shell->o (conf => q<commit>);
       ' || fatal "error while initialising CPAN"
 
-      touch "$PERL_PREFIX/staticstamp.install"
+      : > "$PERL_PREFIX/staticstamp.install"
    fi
 
-   if ! [ -e "$PERL_PREFIX/staticstamp.postinstall" ]; then
-      NOCHECK_INSTALL=+
-      instcpan $STATICPERL_MODULES
-      [ $EXTRA_MODULES ] && instcpan $EXTRA_MODULES
+   _postinstall
+}
 
-      postinstall || fatal "postinstall hook failed"
+import() {
+   IMPORT="$1"
 
-      touch "$PERL_PREFIX/staticstamp.postinstall"
+   rcd "$STATICPERL"
+
+   if ! [ -e "$PERL_PREFIX/staticstamp.install" ]; then
+      verblock <<EOF
+import perl from $IMPORT to $STATICPERL
+EOF
+
+      rm -rf bin cpan lib patched perl src
+      mkdir -m 755 perl perl/bin
+      ln -s perl/bin/ bin
+      ln -s "$IMPORT" perl/bin/
+
+      echo "$IMPORT" > "$PERL_PREFIX/.import"
+
+      : > "$PERL_PREFIX/staticstamp.install"
    fi
+
+   _postinstall
 }
 
 #############################################################################
@@ -401,11 +439,15 @@ installing modules from CPAN
 $@
 EOF
 
-   for mod in "$@"; do
-      "$PERL_PREFIX"/bin/perl -MCPAN::MyConfig -MCPAN -e 'notest install => "'"$mod"'"' \
-         || fatal "$mod: unable to install from CPAN"
-   done
-   rm -rf "$STATICPERL/build"
+   MYCONFIG=
+   [ -e "$PERL_PREFIX/.import" ] || MYCONFIG=-MCPAN::MyConfig
+
+   "$PERL_PREFIX"/bin/perl $MYCONFIG -MCPAN -e 'notest (install => $_) for @ARGV' -- "$@" | tee "$STATICPERL/instcpan.log"
+
+   if grep -q " -- NOT OK\$" "$STATICPERL/instcpan.log"; then
+      fatal "failure while installing modules from CPAN ($@)"
+   fi
+   rm -f "$STATICPERL/instcpan.log"
 }
 
 #############################################################################
@@ -488,8 +530,12 @@ if [ $# -gt 0 ]; then
          version )
             echo "staticperl version $VERSION"
             ;;
-         fetch | configure | build | install | clean | realclean | distclean)
+         fetch | configure | build | install | clean | realclean | distclean )
             ( "$command" ) || exit
+            ;;
+         import )
+            ( import "$1" ) || exit
+            shift
             ;;
          instsrc )
             ( instsrc "$@" ) || exit
@@ -506,6 +552,8 @@ if [ $# -gt 0 ]; then
             ;;
          cpan )
             ( install ) || exit
+            PERL="$PERL_PREFIX/bin/perl"
+            export PERL
             exec "$PERL_PREFIX/bin/cpan" "$@"
             exit
             ;;

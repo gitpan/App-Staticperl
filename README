@@ -11,7 +11,7 @@ SYNOPSIS
        staticperl distclean # delete everything installed by this script
        staticperl perl ...  # invoke the perlinterpreter
        staticperl cpan      # invoke CPAN shell
-       staticperl instmod path...        # install unpacked modules
+       staticperl instsrc path...        # install unpacked modules
        staticperl instcpan modulename... # install modules from CPAN
        staticperl mkbundle <bundle-args...> # see documentation
        staticperl mkperl <bundle-args...>   # see documentation
@@ -83,7 +83,7 @@ DESCRIPTION
         tweaked manually.
 
         All this does not preclude more permissive modes to be implemented
-        in the future, but right now, you have to resolve state hidden
+        in the future, but right now, you have to resolve hidden
         dependencies manually.
 
     *   PAR works out of the box, staticperl does not.
@@ -191,7 +191,9 @@ THE STATICPERL SCRIPT
         Starts an interactive CPAN shell that you can use to install further
         modules. Installs the perl first if necessary, but apart from that,
         no magic is involved: you could just as well run it manually via
-        ~/.staticperl/perl/bin/cpan.
+        ~/.staticperl/perl/bin/cpan, except that staticperl additionally
+        sets the environment variable $PERL to the path of the perl
+        interpreter, which is handy in subshells.
 
         Any additional arguments are simply passed to the cpan command.
 
@@ -500,18 +502,18 @@ THE STATICPERL SCRIPT
             adds it without any postprocessing (perl files might get
             stripped to reduce their size).
 
-            If you specify an alias you should probably add a "&" prefix to
+            If you specify an alias you should probably add a "/" prefix to
             avoid clashing with embedded perl files (whose paths never start
-            with "&"), and/or use a special directory prefix, such as
-            "&res/name".
+            with "/"), and/or use a special directory prefix, such as
+            "/res/name".
 
-            You can later get a copy of these files by calling
-            "staticperl::find "alias"".
+            You can later get a copy of these files by calling "static::find
+            "alias"".
 
             An alternative way to embed binary files is to convert them to
             perl and use "do" to get the contents - this method is a bit
             cumbersome, but works both inside and outside of a staticperl
-            bundle:
+            bundle, without extra ado:
 
                # a "binary" file, call it "bindata.pl"
                <<'SOME_MARKER'
@@ -520,6 +522,22 @@ THE STATICPERL SCRIPT
 
                # load the binary
                chomp (my $data = do "bindata.pl");
+
+        "--allow-dynamic"
+            By default, when mkbundle hits a dynamic perl extension (e.g. a
+            .so or .dll file), it will stop with a fatal error.
+
+            When this option is enabled, mkbundle packages the shared object
+            into the bundle instead, with a prefix of ! (e.g.
+            !auto/List/Util/Util.so). What you do with that is currently up
+            to you, staticperl has no special support for this at the
+            moment, apart from working around the lack of availability of
+            PerlIO::scalar while bootstrapping, at a speed cost.
+
+            One way to deal with this is to write all files starting with !
+            into some directory and then "unshift" that path onto @INC.
+
+            #TODO: example
 
     Step 2: filter all files using "--include" and "--exclude" options.
         After all candidate files and modules are added, they are *filtered*
@@ -799,16 +817,21 @@ THE STATICPERL SCRIPT
         The directory where staticperl stores all its files (default:
         ~/.staticperl).
 
-    "PERL_MM_USE_DEFAULT", "EV_EXTRA_DEFS", ...
-        Usually set to 1 to make modules "less inquisitive" during their
-        installation, you can set any environment variable you want - some
-        modules (such as Coro or EV) use environment variables for further
-        tweaking.
+    "DLCACHE"
+        The path to a directory (will be created if it doesn't exist) where
+        downloaded perl sources are being cached, to avoid downloading them
+        again. The default is empty, which means there is no cache.
 
     "PERL_VERSION"
         The perl version to install - default is currently 5.12.3, but 5.8.9
         is also a good choice (5.8.9 is much smaller than 5.12.3, while
         5.10.1 is about as big as 5.12.3).
+
+    "PERL_MM_USE_DEFAULT", "EV_EXTRA_DEFS", ...
+        Usually set to 1 to make modules "less inquisitive" during their
+        installation. You can set (and export!) any environment variable you
+        want - some modules (such as Coro or EV) use environment variables
+        for further tweaking.
 
     "PERL_PREFIX"
         The prefix where perl gets installed (default: $STATICPERL/perl),
@@ -836,11 +859,23 @@ THE STATICPERL SCRIPT
         Most of the variables override (or modify) the corresponding
         Configure variable, except "PERL_CCFLAGS", which gets appended.
 
-        You should have a look near the beginning of the staticperl script -
-        staticperl tries to default "PERL_OPTIMIZE" to some psace-saving
-        options suitable for newer gcc versions. For other compilers or
-        older versions you need to adjust these, for example, in your
-        ~/.staticperlrc.
+        The default for "PERL_OPTIMIZE" is "-Os" (assuming gcc), and for
+        "PERL_LIBS" is "-lm -lcrypt", which should be good for most (but not
+        all) systems.
+
+        For other compilers or more customised optimisation settings, you
+        need to adjust these, e.g. in your ~/.staticperlrc.
+
+        With gcc on x86 and amd64, you can get more space-savings by using:
+
+           -Os -ffunction-sections -fdata-sections -finline-limit=8 -mpush-args
+           -mno-inline-stringops-dynamically -mno-align-stringops
+
+        And on x86 and pentium3 and newer (basically everything you might
+        ever want to run on), adding these is even better for space-savings
+        (use -mtune=core2 or something newer for much faster code, too):
+
+           -fomit-frame-pointer -march=pentium3 -mtune=i386
 
    Variables you probably *do not want* to override
     "MAKE"
@@ -995,22 +1030,59 @@ ANATOMY OF A BUNDLE
         The linker options needed to link the final program.
 
 RUNTIME FUNCTIONALITY
-    Binaries created with "mkbundle"/"mkperl" contain extra functions, which
-    are required to access the bundled perl sources, but might be useful for
-    other purposes.
+    Binaries created with "mkbundle"/"mkperl" contain extra functionality,
+    mostly related to the extra files bundled in the binary (the virtual
+    filesystem). All of this data is statically compiled into the binary,
+    and accessing means copying it from a read-only section of your binary.
+    Data pages in this way is usually freed by the operating system, as it
+    isn't use more the onace.
 
-    In addition, for the embedded loading of perl files to work, staticperl
-    overrides the @INC array.
+  VIRTUAL FILESYSTEM
+    Every bundle has a virtual filesystem. The only information stored in it
+    is the path and contents of each file that was bundled.
 
-    $file = staticperl::find $path
+   LAYOUT
+    Any path starting with an ampersand (&) or exclamation mark (!) are
+    reserved by staticperl. They must only be used as described in this
+    section.
+
+    !   All files that typically cannot be loaded from memory (such as
+        dynamic objects or shared libraries), but have to reside in the
+        filesystem, are prefixed with !. Typically these files get written
+        out to some (semi-)temporary directory shortly after program
+        startup, or before being used.
+
+    !boot
+        The bootstrap file, if specified during bundling.
+
+    !auto/
+        Shared objects or dlls corresponding to dynamically-linked perl
+        extensions are stored with an !auto/ prefix.
+
+    !lib/
+        External shared libraries are stored in this directory.
+
+    any letter
+        Any path starting with a letter is a perl library file. For example,
+        Coro/AIO.pm corresponds to the file loaded by "use Coro::AIO", and
+        Coro/jit.pl corresponds to "require "Coro/jit.pl"".
+
+        Obviously, module names shouldn't start with any other characters
+        than letters :)
+
+   FUNCTIONS
+    $file = static::find $path
         Returns the data associated with the given $path (e.g.
-        "Digest/MD5.pm", "auto/POSIX/autosplit.ix"), which is basically the
-        UNIX path relative to the perl library directory.
+        "Digest/MD5.pm", "auto/POSIX/autosplit.ix").
 
         Returns "undef" if the file isn't embedded.
 
-    @paths = staticperl::list
+    @paths = static::list
         Returns the list of all paths embedded in this binary.
+
+  EXTRA FEATURES
+    In addition, for the embedded loading of perl files to work, staticperl
+    overrides the @INC array.
 
 FULLY STATIC BINARIES - UCLIBC AND BUILDROOT
     To make truly static (Linux-) libraries, you might want to have a look
@@ -1041,7 +1113,7 @@ FULLY STATIC BINARIES - UCLIBC AND BUILDROOT
     If you use "linuxthreads.old", then you should also be aware that uClibc
     shares "errno" between all threads when statically linking. See
     <http://lists.uclibc.org/pipermail/uclibc/2010-June/044157.html> for a
-    workaround (And <https://bugs.uclibc.org/2089> for discussion).
+    workaround (and <https://bugs.uclibc.org/2089> for discussion).
 
     "ccache" support is also recommended, especially if you want to play
     around with buildroot options. Enabling the "miniperl" package will
@@ -1059,13 +1131,13 @@ FULLY STATIC BINARIES - UCLIBC AND BUILDROOT
     built-in ash shell.
 
     Finally, you need /dev/null inside the chroot for many scripts to work -
-    cp /dev/null output/target/dev or bind-mounting your /dev will both
+    either cp /dev/null output/target/dev or bind-mounting your /dev will
     provide this.
 
     After you have compiled and set up your buildroot target, you can copy
-    staticperl from the "App::Staticperl" distribution or from your perl
-    f<bin> directory (if you installed it) into the output/target
-    filesystem, chroot inside and run it.
+    staticperl from the "App::Staticperl" distribution or from your perl bin
+    directory (if you installed it) into the output/target filesystem,
+    chroot inside and run it.
 
 RECIPES / SPECIFIC MODULES
     This section contains some common(?) recipes and information about
