@@ -7,6 +7,7 @@ WriteMakefile(
 	             SUFFIX	=> '.gz',
 	            },
     NAME         => "App::Staticperl",
+    ABSTRACT     => "perl, libc, 100 modules, all in one standalone 500kb file",
     VERSION_FROM => "bin/staticperl",
     EXE_FILES    => ["bin/staticperl"],
     PM           => {},

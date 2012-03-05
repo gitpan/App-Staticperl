@@ -1,5 +1,5 @@
 NAME
-    staticperl - perl, libc, 100 modules, all in one 500kb file
+    staticperl - perl, libc, 100 modules, all in one standalone 500kb file
 
 SYNOPSIS
        staticperl help      # print the embedded documentation
@@ -322,7 +322,7 @@ THE STATICPERL SCRIPT
     All options that specify modules or files to be added are processed in
     the order given on the command line.
 
-   BUNDLE CREATION WORKFLOW / STATICPELR MKBUNDLE OPTIONS
+   BUNDLE CREATION WORKFLOW / STATICPERL MKBUNDLE OPTIONS
     staticperl mkbundle works by first assembling a list of candidate files
     and modules to include, then filtering them by include/exclude patterns.
     The remaining modules (together with their direct dependencies, such as
@@ -693,7 +693,7 @@ THE STATICPERL SCRIPT
             Specifically, these are removed:
 
             "PERL_HASH_SEED_DEBUG" and "PERL_DEBUG_MSTATS" can cause
-            underaible output, "PERL5OPT", "PERL_DESTRUCT_LEVEL",
+            undesirable output, "PERL5OPT", "PERL_DESTRUCT_LEVEL",
             "PERL_HASH_SEED" and "PERL_SIGNALS" can alter execution
             significantly, and "PERL_UNICODE", "PERLIO_DEBUG" and "PERLIO"
             can affect input and output.

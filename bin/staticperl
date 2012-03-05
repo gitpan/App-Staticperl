@@ -81,7 +81,7 @@ PATH="$PERL_PREFIX/perl/bin:$PATH"
 
 # set version in a way that Makefile.PL can extract
 VERSION=VERSION; eval \
-$VERSION="1.4"
+$VERSION="1.41"
 
 BZ2=bz2
 BZIP2=bzip2
@@ -429,6 +429,12 @@ use CPAN::MyConfig; # patched by staticperl
 # as not being an XS module.
 patch ExtUtils/MM_Unix.pm mm_unix_pm '
 /^sub staticmake/,/^}/ s/if (@{$self->{C}}) {/if (@{$self->{C}} or $self->{NAME} =~ m%^(Pango|Gtk2)$%) { # patched by staticperl/
+'
+
+# patch ExtUtils::MM_Any *temporarily* because it breaks Pod::Parser
+patch ExtUtils/MM_Unix.pm mm_unix_pm '
+/^sub metafile_data/ a\
+   return; # patched by staticperl
 '
 
 # patch ExtUtils::Miniperl to always add DynaLoader
@@ -1888,7 +1894,7 @@ exit 0
 
 =head1 NAME
 
-staticperl - perl, libc, 100 modules, all in one 500kb file
+staticperl - perl, libc, 100 modules, all in one standalone 500kb file
 
 =head1 SYNOPSIS
 
@@ -2238,7 +2244,7 @@ everything after the option is an argument):
 All options that specify modules or files to be added are processed in the
 order given on the command line.
 
-=head3 BUNDLE CREATION WORKFLOW / STATICPELR MKBUNDLE OPTIONS
+=head3 BUNDLE CREATION WORKFLOW / STATICPERL MKBUNDLE OPTIONS
 
 F<staticperl mkbundle> works by first assembling a list of candidate
 files and modules to include, then filtering them by include/exclude
@@ -2642,7 +2648,7 @@ trouble.
 
 Specifically, these are removed:
 
-C<PERL_HASH_SEED_DEBUG> and C<PERL_DEBUG_MSTATS> can cause underaible
+C<PERL_HASH_SEED_DEBUG> and C<PERL_DEBUG_MSTATS> can cause undesirable
 output, C<PERL5OPT>, C<PERL_DESTRUCT_LEVEL>, C<PERL_HASH_SEED> and
 C<PERL_SIGNALS> can alter execution significantly, and C<PERL_UNICODE>,
 C<PERLIO_DEBUG> and C<PERLIO> can affect input and output.

@@ -11,6 +11,10 @@ TODO: nonstatic builds, make.aperl failure does not link in everything?
 TODO-IMPORTANT: CPAN::MyConfig!
 TODO: echo " -ldl" >>"$PERL_PREFIX"/lib/auto/Net/SSLeay/extralibs.ld
 
+1.41 Mon Mar  5 08:14:11 CET 2012
+	- temporarily patch ExtUtils::MakeMaker because newer versions
+          break Pod::Parser.
+
 1.4  Mon Jul 18 09:33:48 CEST 2011
 	- new configuration variable DLCACHE to avoid repeated downloads.
         - the static:: namespace was wrongly documented as sttaicperl::.
