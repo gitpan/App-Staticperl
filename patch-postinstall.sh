@@ -38,7 +38,7 @@ patch ExtUtils/MM_Unix.pm mm_unix_pm '
 '
 
 # patch ExtUtils::MM_Any *temporarily* because it breaks Pod::Parser
-patch ExtUtils/MM_Unix.pm mm_unix_pm '
+patch ExtUtils/MM_Any.pm mm_any_pm '
 /^sub metafile_data/ a\
    return; # patched by staticperl
 '

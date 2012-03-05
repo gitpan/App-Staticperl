@@ -81,7 +81,7 @@ PATH="$PERL_PREFIX/perl/bin:$PATH"
 
 # set version in a way that Makefile.PL can extract
 VERSION=VERSION; eval \
-$VERSION="1.41"
+$VERSION="1.42"
 
 BZ2=bz2
 BZIP2=bzip2
@@ -432,7 +432,7 @@ patch ExtUtils/MM_Unix.pm mm_unix_pm '
 '
 
 # patch ExtUtils::MM_Any *temporarily* because it breaks Pod::Parser
-patch ExtUtils/MM_Unix.pm mm_unix_pm '
+patch ExtUtils/MM_Any.pm mm_any_pm '
 /^sub metafile_data/ a\
    return; # patched by staticperl
 '
