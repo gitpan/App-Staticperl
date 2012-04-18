@@ -78,7 +78,7 @@ BEGIN {
 
          syswrite $W_TRACER, "-\n$dir\n$_[1]\n";
 
-         open my $fh, "<:perlio", "$dir/$_[1]"
+         open my $fh, "<:raw:perlio", "$dir/$_[1]"
             or warn "ERROR: $dir/$_[1]: $!\n";
 
          $fh
@@ -164,7 +164,7 @@ sub cache($$$) {
    if (length $CACHE and 2048 <= length $src and defined $variant) {
       my $file = "$CACHE/" . Digest::MD5::md5_hex "$CACHEVER\x00$variant\x00$src";
 
-      if (open my $fh, "<:perlio", $file) {
+      if (open my $fh, "<:raw:perlio", $file) {
          print "using cache for $file\n"
             if $VERBOSE >= 7;
 
@@ -177,7 +177,7 @@ sub cache($$$) {
       print "creating cache entry $file\n"
          if $VERBOSE >= 8;
 
-      if (open my $fh, ">:perlio", "$file~") {
+      if (open my $fh, ">:raw:perlio", "$file~") {
          if ((syswrite $fh, $src) == length $src) {
             close $fh;
             rename "$file~", $file;
@@ -565,7 +565,7 @@ for my $pm (@order) {
    my $src = ref $path
            ? $$path
            : do {
-              open my $pm, "<", $path
+              open my $pm, "<:raw:perlio", $path
                  or die "$path: $!";
 
               local $/;
@@ -1223,8 +1223,8 @@ if ($PERL or defined $APP) {
 
    system $build;
 
-#   unlink "$PREFIX.$_"
-#      for qw(ccopts ldopts c h);
+   unlink "$PREFIX.$_"
+      for qw(ccopts ldopts c h);
 
    print "\n"
       if $VERBOSE >= 1;

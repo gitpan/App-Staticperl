@@ -45,7 +45,7 @@ export PERL_MM_USE_DEFAULT PERL_MM_OPT
 
 # which extra modules to install by default from CPAN that are
 # required by mkbundle
-STATICPERL_MODULES="common::sense Pod::Strip PPI::XS Pod::Usage"
+STATICPERL_MODULES="ExtUtils::MakeMaker common::sense Pod::Strip PPI PPI::XS Pod::Usage"
 
 # which extra modules you might want to install
 EXTRA_MODULES=""
@@ -81,7 +81,7 @@ PATH="$PERL_PREFIX/perl/bin:$PATH"
 
 # set version in a way that Makefile.PL can extract
 VERSION=VERSION; eval \
-$VERSION="1.42"
+$VERSION="1.43"
 
 BZ2=bz2
 BZIP2=bzip2
@@ -431,12 +431,6 @@ patch ExtUtils/MM_Unix.pm mm_unix_pm '
 /^sub staticmake/,/^}/ s/if (@{$self->{C}}) {/if (@{$self->{C}} or $self->{NAME} =~ m%^(Pango|Gtk2)$%) { # patched by staticperl/
 '
 
-# patch ExtUtils::MM_Any *temporarily* because it breaks Pod::Parser
-patch ExtUtils/MM_Any.pm mm_any_pm '
-/^sub metafile_data/ a\
-   return; # patched by staticperl
-'
-
 # patch ExtUtils::Miniperl to always add DynaLoader
 # this is required for dynamic loading in static perls,
 # and static loading in dynamic perls, when rebuilding a new perl.
@@ -659,7 +653,7 @@ BEGIN {
 
          syswrite $W_TRACER, "-\n$dir\n$_[1]\n";
 
-         open my $fh, "<:perlio", "$dir/$_[1]"
+         open my $fh, "<:raw:perlio", "$dir/$_[1]"
             or warn "ERROR: $dir/$_[1]: $!\n";
 
          $fh
@@ -745,7 +739,7 @@ sub cache($$$) {
    if (length $CACHE and 2048 <= length $src and defined $variant) {
       my $file = "$CACHE/" . Digest::MD5::md5_hex "$CACHEVER\x00$variant\x00$src";
 
-      if (open my $fh, "<:perlio", $file) {
+      if (open my $fh, "<:raw:perlio", $file) {
          print "using cache for $file\n"
             if $VERBOSE >= 7;
 
@@ -758,7 +752,7 @@ sub cache($$$) {
       print "creating cache entry $file\n"
          if $VERBOSE >= 8;
 
-      if (open my $fh, ">:perlio", "$file~") {
+      if (open my $fh, ">:raw:perlio", "$file~") {
          if ((syswrite $fh, $src) == length $src) {
             close $fh;
             rename "$file~", $file;
@@ -1146,7 +1140,7 @@ for my $pm (@order) {
    my $src = ref $path
            ? $$path
            : do {
-              open my $pm, "<", $path
+              open my $pm, "<:raw:perlio", $path
                  or die "$path: $!";
 
               local $/;
@@ -1804,8 +1798,8 @@ if ($PERL or defined $APP) {
 
    system $build;
 
-#   unlink "$PREFIX.$_"
-#      for qw(ccopts ldopts c h);
+   unlink "$PREFIX.$_"
+      for qw(ccopts ldopts c h);
 
    print "\n"
       if $VERBOSE >= 1;
@@ -2439,7 +2433,7 @@ Example: add local files as extra modules in the bundle.
    require myfiles::file2;
    my $res = do "myfiles/file3.pl";
 
-=item C<--binadd> F<file> | C<--add> "F<file> alias"
+=item C<--binadd> F<file> | C<--binadd> "F<file> alias"
 
 Just like C<--add>, except that it treats the file as binary and adds it
 without any postprocessing (perl files might get stripped to reduce their

@@ -45,7 +45,7 @@ export PERL_MM_USE_DEFAULT PERL_MM_OPT
 
 # which extra modules to install by default from CPAN that are
 # required by mkbundle
-STATICPERL_MODULES="common::sense Pod::Strip PPI::XS Pod::Usage"
+STATICPERL_MODULES="ExtUtils::MakeMaker common::sense Pod::Strip PPI PPI::XS Pod::Usage"
 
 # which extra modules you might want to install
 EXTRA_MODULES=""
@@ -81,7 +81,7 @@ PATH="$PERL_PREFIX/perl/bin:$PATH"
 
 # set version in a way that Makefile.PL can extract
 VERSION=VERSION; eval \
-$VERSION="1.42"
+$VERSION="1.43"
 
 BZ2=bz2
 BZIP2=bzip2

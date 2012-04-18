@@ -545,7 +545,7 @@ Example: add local files as extra modules in the bundle.
    require myfiles::file2;
    my $res = do "myfiles/file3.pl";
 
-=item C<--binadd> F<file> | C<--add> "F<file> alias"
+=item C<--binadd> F<file> | C<--binadd> "F<file> alias"
 
 Just like C<--add>, except that it treats the file as binary and adds it
 without any postprocessing (perl files might get stripped to reduce their

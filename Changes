@@ -11,6 +11,14 @@ TODO: nonstatic builds, make.aperl failure does not link in everything?
 TODO-IMPORTANT: CPAN::MyConfig!
 TODO: echo " -ldl" >>"$PERL_PREFIX"/lib/auto/Net/SSLeay/extralibs.ld
 
+1.43 Wed Apr 18 14:38:43 CEST 2012
+	- remove the temporary MakeMaker patch, as either Pod::Parser or
+          MakeMaker have been fixed. Also make sure we pull MakeMaker
+          from CPAN. This might fix the CPAN dependency problems with
+          newer perl versions (at least 5.14.2).
+	- staticperl mkperl or mkapp didn't clean up temporary files.
+        - PPI::XS seems to be broken, directly depend on PPI.
+
 1.42 Mon Mar  5 08:16:02 CET 2012
 	- actually, really do it.
 

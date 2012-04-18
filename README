@@ -497,7 +497,7 @@ THE STATICPERL SCRIPT
                require myfiles::file2;
                my $res = do "myfiles/file3.pl";
 
-        "--binadd" file | "--add" "file alias"
+        "--binadd" file | "--binadd" "file alias"
             Just like "--add", except that it treats the file as binary and
             adds it without any postprocessing (perl files might get
             stripped to reduce their size).
